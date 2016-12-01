@@ -1,4 +1,6 @@
+*.ignore.js
 *.bat
+*.sh
 *.7z
 *.rar
 *.zip

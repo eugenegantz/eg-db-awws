@@ -1,0 +1,877 @@
+Index: src/db-awws-request.js
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/db-awws-request.js	(revision )
++++ src/db-awws-request.js	(revision )
+@@ -0,0 +1,221 @@
++"use strict";
++
++var Ajax        = require("eg-node-ajax"),
++	awwsUtils   = require("./db-awws-utils.js"),
++	awwsBase64  = require("./db-awws-base64.js");
++
++/**
++ * @constructor
++ * @param {Object} arg - параметры запроса
++ * */
++var DBAwwsReq = function(arg) {
++	this.setParams(arg);
++
++	this.encodedData = this.encodeQuery(this);
++};
++
++
++/**
++ * Назначить параметры запроса
++ * @param {Object} params - хэш с параметрами
++ * @return {DBAwwsReq}
++ * */
++DBAwwsReq.prototype.setParams = function(params) {
++	Object.assign(this, props);
++
++	return this;
++};
++
++
++/**
++ * Формирует запрос в формате AwwS (JSON без кавычек)
++ * @param {Object} arg
++ * @param {String} arg.dbmethod - метод запроса POST|GET
++ * @param {String} arg.dbname
++ * @param {String} arg.dbsrc
++ * @param {String} arg.cache - название кэша (прим.*_ps123)
++ * @param {String} arg.query - текст запроса
++ * */
++DBAwwsReq.prototype.encodeQuery = function(arg) {
++	var dbmethod = arg.dbmethod.toUpperCase(),
++		s = [
++			"id:0",
++			"Conf:\""       + arg.dbname + "\"",
++			"Src:\""        + arg.dbsrc + "\"",
++			"Login:\"\"",
++			"Pwd:\"\"",
++			"Cache:\""      + awwsBase64.encode(arg.dbcache) + "\"",
++			"Sql:\""        + awwsBase64.encode(arg.query) + "\""
++		];
++
++	s = "{" + s.join(",") + "}";
++
++	if (dbmethod == "POST")
++		return s;
++
++	if (dbmethod == "GET")
++		return awwsBase64.encode(s);
++};
++
++
++/**
++ * Отправить запрос
++ * */
++DBAwwsReq.prototype.send = function() {
++	this.errors         = [];
++	this.httpError      = "";
++	this.reqError       = "";
++	this.error          = "";
++
++	return this;
++};
++
++
++DBAwwsReq.prototype._onAjaxAResponse = function(httpErr, httpRes) {
++	var self = this;
++	var dbres = {
++		"err": "",
++		"recs": 0,
++		"res": [],
++		"fld": []
++	};
++
++	if (httpRes.error) {
++		self.emit("requestFail");
++
++		// Есть ошибки в запросе
++		// Лимит повторов достигнут?
++		if (++this.reqСount < self.reqFailRepeats) {
++			if (query_b) {
++				Ajax.request({
++					"method": dbmethod,
++					"url": url,
++					"data": data,
++					"decodeFrom": "windows-1251",
++					"callback": onAjaxBResponse
++				});
++
++				return;
++			}
++
++			setTimeout(
++				this.send,
++				self.reqAfterFailTimeout
++			);
++
++			return;
++		}
++
++		self.errors.push(httpRes.error);
++
++		dbres.err = httpRes.error;
++
++		this.error = httpRes.error;
++
++		// Перенастройка БД сервера
++		if (!this.setAutoProp) {
++			this.setAutoProp = 1;
++			self.dbCtx.autoConfig({
++				"callback": () => {
++					this.reqСount = 0;
++					this.send();
++				}
++			});
++
++		} else {
++			setAutoProp = 0;
++			callback(dbres);
++			console.log("Не удалось подключиться к БД");
++		}
++
++		return;
++	}
++
++	// Ошибки запроса?
++	if (!httpRes.error) {
++		// TODO if !sdbres
++
++		try {
++			// Содержимое ответа из БД
++			dbres = eval("(" + httpRes.responseText + ")");
++
++		} catch (err) {
++			if (typeof err.stack == "string") {
++				dbres.err = err.stack;
++				console.log(err.stack, httpRes);
++			}
++		}
++
++		// Вернулся массив?
++		// На случай пакетного запроса
++		if (!Array.isArray(dbres)) {
++			dbres.err && self.errors.push(dbres.err);
++			error = dbres.err;
++
++		} else {
++			var tmp = [];
++
++			for (var c = 0; c < dbres.length; c++) {
++				if (dbres[c].err) {
++					var tmp2 = awwsUtils.trim(dbres[c].err, " ;") + '(' + (c + 1) + ')';
++					tmp.push(tmp2);
++					self.errors.push(tmp2);
++				}
++			}
++
++			error = tmp.join('; ');
++		}
++
++		// this - экземпляр DBRequest
++		callback.call(this, this, dbres);
++
++	}
++
++};
++
++
++DBAwwsReq.prototype._onAjaxBResponse = function(httpErrB, httpResB) {
++	var dbResB = {
++		"err": "",
++		"recs": 0,
++		"res": [],
++		"fld": []
++	};
++
++	if (!httpResB.error) {
++		try {
++			dbResB = eval("(" + httpResB.responseText + ")");
++
++		} catch (err) {
++			if (typeof err.stack == "string") {
++				dbResB.err = err.stack;
++				console.log(err.stack);
++			}
++		}
++
++		if (!dbResB.recs) {
++			setTimeout(
++				function() {
++					req();
++				},
++				self.reqAfterFailTimeout
++			);
++
++		} else {
++			callback({
++				"res": [],
++				"recs": 0,
++				"err": httpRes.error,
++				"fld": []
++			});
++		}
++
++	} else {
++		setTimeout(
++			function() {
++				req();
++			},
++			self.reqAfterFailTimeout
++		);
++	}
++};
+\ No newline at end of file
+Index: src/db-awws-base64.js
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/db-awws-base64.js	(revision )
++++ src/db-awws-base64.js	(revision )
+@@ -0,0 +1,66 @@
++/**
++ * Самописное Base64 шифрование
++ * */
++module.exports = {
++	"_keyStr": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=",
++
++	/**
++	 * Закодировать строку в base64
++	 * @param {String} input
++	 * @return {String}
++	 * */
++	"encode": function(input) {
++		if (!input) return "";
++
++		var chr1, chr2, chr3, enc1, enc2, enc3, enc4,
++			i = 0,
++			output = "";
++
++		input = this._utf8_encode(input);
++
++		while (i < input.length) {
++			chr1 = input.charCodeAt(i++);
++			chr2 = input.charCodeAt(i++);
++			chr3 = input.charCodeAt(i++);
++			enc1 = chr1 >> 2;
++			enc2 = ((chr1 & 3) << 4) | (chr2 >> 4);
++			enc3 = ((chr2 & 15) << 2) | (chr3 >> 6);
++			enc4 = chr3 & 63;
++
++			if (isNaN(chr2))  enc3 = enc4 = 64;
++			else if (isNaN(chr3)) enc4 = 64;
++
++			output += this._keyStr.charAt(enc1) +
++				this._keyStr.charAt(enc2) +
++				this._keyStr.charAt(enc3) +
++				this._keyStr.charAt(enc4);
++		}
++
++		return output.substr(4, 1) + output;
++	},
++
++	"_utf8_encode": function(string) {
++		string = string.replace(/\r\n/g, "\n");
++
++		var c, n, utftext = "";
++
++		for (n = 0; n < string.length; n++) {
++			c = string.charCodeAt(n);
++
++			if (c < 128)
++				utftext += String.fromCharCode(c);
++
++			else if ((c > 127) && (c < 2048)) {
++				utftext += String.fromCharCode((c >> 6) | 192);
++				utftext += String.fromCharCode((c & 63) | 128);
++
++			} else {
++				utftext += String.fromCharCode((c >> 12) | 224);
++				utftext += String.fromCharCode(((c >> 6) & 63) | 128);
++				utftext += String.fromCharCode((c & 63) | 128);
++			}
++		}
++
++		return utftext;
++	}
++};
+\ No newline at end of file
+Index: src/db-awws-utils.js
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/db-awws-utils.js	(revision )
++++ src/db-awws-utils.js	(revision )
+@@ -0,0 +1,17 @@
++module.exports = {
++	/**
++	 * @param {String} str - ввод строка
++	 * @param {String} ch - символы, которые необходимо срезать
++	 * @param {String=} di - "L" => LTRIM, "R" => RTRIM, "" => TRIM
++	 * @return {String}
++	 * */
++	"trim": function(str, ch, di) {
++		var regEx = [];
++
++		(!di || di == "L") && regEx.push("^[" + ch + "]+");
++
++		(!di || di == "R") && regEx.push("[" + ch + "]+$");
++
++		return str.replace(new RegExp(regEx.join("|"), "g"), "");
++	}
++};
+\ No newline at end of file
+Index: src/dbawws.js
+===================================================================
+--- src/dbawws.js	(date 1480951629000)
++++ src/db-awws.js	(revision )
+@@ -1,6 +1,11 @@
++"use strict";
++
+ var modPath         = require("path"),
+ 	modFs           = require("fs"),
+ 	Ajax            = require("eg-node-ajax"),
++	DBRequest       = require("./db-awws-request.js"),
++	awwsBase64      = require("./db-awws-base64.js"),
++	awwsUtils       = require("./db-awws-utils.js"),
+ 	modUtil         = require("util"),
+ 	EventEmitter    = require("events");
+ 
+@@ -33,7 +38,7 @@
+ 	this.awwsCacheEnable        = true;
+ 	this.logUseBacktrace        = false;
+ 	this.reqAfterFailTimeout    = 500;
+-	this._rapidCacheStorage = Object.create(null);
++	this._rapidCacheStorage     = Object.create(null);
+ 
+ 	// "rapidCache" - возвращает быстрый кэш для одинаковых запросов
+ 	// в течении настроенного времени
+@@ -83,112 +88,13 @@
+ 
+ 
+ /**
+- * Самописное Base64 шифрование
+- * */
+-DBAwwS.prototype.Base64 = {
+-	"_keyStr": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=",
+-
+-	/**
+-	 * Закодировать строку в base64
+-	 * @param {String} input
+-	 * @return {String}
+-	 * */
+-	"encode": function(input) {
+-		if (!input) return "";
+-
+-		var chr1, chr2, chr3, enc1, enc2, enc3, enc4,
+-			i = 0,
+-			output = "";
+-
+-		input = this._utf8_encode(input);
+-
+-		while (i < input.length) {
+-			chr1 = input.charCodeAt(i++);
+-			chr2 = input.charCodeAt(i++);
+-			chr3 = input.charCodeAt(i++);
+-			enc1 = chr1 >> 2;
+-			enc2 = ((chr1 & 3) << 4) | (chr2 >> 4);
+-			enc3 = ((chr2 & 15) << 2) | (chr3 >> 6);
+-			enc4 = chr3 & 63;
+-
+-			if (isNaN(chr2))  enc3 = enc4 = 64;
+-			else if (isNaN(chr3)) enc4 = 64;
+-
+-			output += this._keyStr.charAt(enc1) +
+-					this._keyStr.charAt(enc2) +
+-					this._keyStr.charAt(enc3) +
+-					this._keyStr.charAt(enc4);
+-		}
+-
+-		return output.substr(4, 1) + output;
+-	},
+-
+-	"_utf8_encode": function(string) {
+-		string = string.replace(/\r\n/g, "\n");
+-
+-		var c, n, utftext = "";
+-
+-		for (n = 0; n < string.length; n++) {
+-			c = string.charCodeAt(n);
+-
+-			if (c < 128)
+-				utftext += String.fromCharCode(c);
+-
+-			else if ((c > 127) && (c < 2048)) {
+-				utftext += String.fromCharCode((c >> 6) | 192);
+-				utftext += String.fromCharCode((c & 63) | 128);
+-
+-			} else {
+-				utftext += String.fromCharCode((c >> 12) | 224);
+-				utftext += String.fromCharCode(((c >> 6) & 63) | 128);
+-				utftext += String.fromCharCode((c & 63) | 128);
+-			}
+-		}
+-
+-		return utftext;
+-	}
+-};
+-
+-
+-/**
+- * Формирует запрос в формате AwwS (JSON без кавычек)
+- * @param {Object} arg
+- * @param {String} arg.dbmethod - метод запроса POST|GET
+- * @param {String} arg.dbname
+- * @param {String} arg.dbsrc
+- * @param {String} arg.cache - название кэша (прим.*_ps123)
+- * @param {String} arg.query - текст запроса
+- * */
+-DBAwwS.prototype.encodeQuery = function(arg) {
+-	var dbmethod = arg.dbmethod.toUpperCase(),
+-		s = [
+-			"id:0",
+-			"Conf:\""       + arg.dbname + "\"",
+-			"Src:\""        + arg.dbsrc + "\"",
+-			"Login:\"\"",
+-			"Pwd:\"\"",
+-			"Cache:\""      + this.Base64.encode(arg.dbcache) + "\"",
+-			"Sql:\""        + this.Base64.encode(arg.query) + "\""
+-		];
+-
+-	s = "{" + s.join(",") + "}";
+-
+-	if (dbmethod == "POST")
+-		return s;
+-
+-	if (dbmethod == "GET")
+-		return this.Base64.encode(s);
+-};
+-
+-
+-/**
+  * Разбить строку пакетного запроса на массив одиночных
+  * @param {String} s - текст запроса
+  * @return {Array}
+  * */
+ DBAwwS.prototype.splitSQL = function(s) {
+-	s = this
+-			._utils.trim(s, ' ;\\t\\n\\r\\0\\x0B')
++	s = awwsUtils
++			.trim(s, ' ;\\t\\n\\r\\0\\x0B')
+ 			.split('');
+ 
+ 	var c,
+@@ -277,16 +183,23 @@
+ 	if (typeof arg != "object")
+ 		throw new Error(`arg supposed to be "Object". "${typeof arg}" given`);
+ 
+-	var self        = this,
++	var self            = this,
+-		query_b     = typeof arg.query_b == "string" && arg.query_b ? arg.query_b : null,
++		query_b         = arg.query_b,
+-		dbsrc       = typeof arg.dbsrc == "string" && arg.dbsrc ? arg.dbsrc : this.dbsrc,
++		dbsrc           = typeof arg.dbsrc == "string" && arg.dbsrc ? arg.dbsrc : this.dbsrc,
+-		dbname      = typeof arg.dbname == "string" && arg.dbname ? arg.dbname : this.dbname,
++		dbname          = typeof arg.dbname == "string" && arg.dbname ? arg.dbname : this.dbname,
+-		dbmethod    = typeof arg.dbmethod == "string" && arg.dbmethod ? arg.dbmethod.toUpperCase() : "POST",
++		dbmethod        = typeof arg.dbmethod == "string" && arg.dbmethod ? arg.dbmethod.toUpperCase() : "POST",
+-		url         = arg.url || arg.dburl || self.dburl || null,
++		url             = arg.url || arg.dburl || self.dburl || null,
+-		callback    = typeof arg.callback == "function" ? arg.callback : new Function(),
++		callback        = typeof arg.callback == "function" ? arg.callback : new Function(),
+-		dbCache     = typeof arg.dbcache == "string" && arg.dbcache.length > 4 ? arg.dbcache : "*_ps",
++		dbCache         = typeof arg.dbcache == "string" && arg.dbcache.length > 4 ? arg.dbcache : "*_ps",
+-		isSelectQuery = this.hasOnlySelectQuery(arg.query);
++		isSelectQuery   = this.hasOnlySelectQuery(arg.query),
+ 
++		// Has arguments specified connection? Параметры подключения объявлены в аргументах?
++		hasArgSpCn = arg.query || arg.dbsrc || arg.dbname || arg.dbmethod;
++
++	if (!this.awwsCacheEnable) dbCache = "";
++
++	// ----------------------------------------------
++
+ 	if (typeof arg.query != "string")
+ 		throw new Error(`arg.query supposed to be "String". "${typeof arg}" given`);
+ 
+@@ -297,7 +210,7 @@
+ 
+ 	// ----------------------------------------------
+ 
+-	if (!url || !dbsrc || !dbname) {
++	if ((!url || !dbsrc || !dbname) && !hasArgSpCn) {
+ 		self.autoConfig({
+ 			"callback": function(res) {
+ 				if (res) {
+@@ -312,208 +225,136 @@
+ 		return;
+ 	}
+ 
++
+ 	// ----------------------------------------------
+-	// Запрос
++	// Запросы
+ 	// ----------------------------------------------
+-	if (!this.awwsCacheEnable) dbCache = "";
+ 
+ 	// Счетчик повторения запросов
++	// ----------------------------------------------
+ 	var reqСount = 0,
+ 		setAutoProp = 0,
+-		error = '',
++		error = '';
+ 
+-		data = this.encodeQuery({
++	// Аргументы для запроса
++	// ----------------------------------------------
++	var _prepReqArgs = () => {
++		return {
++			"dbCtx":        this,
+-			"query": query,
++			"query":        query,
+-			"dbmethod": dbmethod,
++			"dbmethod":     dbmethod,
+-			"dbname": dbname,
++			"dbname":       dbname,
+-			"dbsrc": dbsrc,
++			"dbsrc":        dbsrc,
+-			"dbcache": dbCache
++			"dbcache":      dbCache
+-		});
+-
+-	// var AutoConfigDone = 0;
+-
+-	var req = function() {
+-		Ajax.request({
+-			"method": dbmethod,
+-			"url": url,
+-			"data": data,
+-			"decodeFrom": "windows-1251",
+-			"callback": function(httpErr, httpRes) {
+-				var dbres = {
+-					"err": "",
+-					"recs": 0,
+-					"res": [],
+-					"fld": []
+-				};
++		};
++	};
+ 
+-				reqСount++;
++	var reqArgA = _prepReqArgs();
+ 
+-				// Ошибки запроса?
+-				if (!httpRes.error) {
+-					// TODO if !sdbres
++	// Обработчик ответа на запрос
++	// ----------------------------------------------
++	var _sendCallback = function(err) {
++		// this - контекст db-awws-request
+ 
+-					try {
+-						// Содержимое ответа из БД
+-						dbres = eval("(" + httpRes.responseText + ")");
++		if (err && dbReq.httpError) {
++			// Запрос вернул http ошибку. Нет соединения
+ 
+-					} catch (err) {
+-						if (typeof err.stack == "string") {
+-							dbres.err = err.stack;
+-							console.log(err.stack, httpRes);
+-						}
+-					}
++			if (++reqСount >= self.reqFailRepeats) {
++				// Число попыток превышено
+ 
+-					// Вернулся массив?
+-					// На случай пакетного запроса
+-					if (!Array.isArray(dbres)) {
+-						dbres.err && self.errors.push(dbres.err);
+-						error = dbres.err;
+-
+-					} else {
+-						var tmp = [];
+-
+-						for (var c = 0; c < dbres.length; c++) {
+-							if (dbres[c].err) {
+-								var tmp2 = self._utils.trim(dbres[c].err, " ;") + '(' + (c + 1) + ')';
+-								tmp.push(tmp2);
+-								self.errors.push(tmp2);
++				if (!setAutoProp && !hasArgSpCn) {
++					// ... на текущих настройках - проверить другие доступные настройки, и повторить
++					setAutoProp = 1;
++					self.autoConfig({
++						"callback": () => {
++							reqСount = 0;
++							this.setParams(_prepReqArgs());
++							this.send( { "callback": _sendCallback } );
+-							}
++						}
+-						}
++					});
+ 
+-						error = tmp.join('; ');
+-					}
++				}
+ 
+-					callback(dbres);
++				// ... настройки ничего не дали прекратить - повторы, обьявить ошибку
+ 
+-				} else {
+-					self.emit("requestFail");
++				error = err;
++				return;
++			}
+ 
+-					// Есть ошибки в запросе
+-					// Лимит повторов достигнут?
+-					if (reqСount < self.reqFailRepeats) {
+-						if (query_b) {
++			if (query_b) {
+-							Ajax.request({
+-								"method": dbmethod,
+-								"url": url,
+-								"data": data,
+-								"decodeFrom": "windows-1251",
+-								"callback": function(httpErrB, httpResB) {
++				// Выполнить контрольный запрос
++				// На случай если запрос прошел, но сервер некорректно ответил
++				var reqArgB = Object.assign({}, reqArgA);
+ 
+-									var dbResB = {
+-										"err": "",
+-										"recs": 0,
+-										"res": [],
+-										"fld": []
+-									};
++				reqArgB.query = query_b;
+ 
+-									if (!httpResB.error) {
+-										try {
+-											dbResB = eval("(" + httpResB.responseText + ")");
++				new DBRequest(reqArgB).send({ callback: _sendBCallback });
+ 
+-										} catch (err) {
+-											if (typeof err.stack == "string") {
+-												dbResB.err = err.stack;
+-												console.log(err.stack);
++				return;
+-											}
++			}
+ 
+-										}
+-
+-										if (!dbResB.recs) {
++			// Повтор, через указанное время
+-											setTimeout(
++			setTimeout(
+-												function() {
+-													req();
+-												},
++				a => dbReq.send({ callback: _sendCallback }),
+-												self.reqAfterFailTimeout
+-											);
++				self.reqAfterFailTimeout
++			);
+-
+-										} else {
+-											callback({
+-												"res": [],
+-												"recs": 0,
+-												"err": httpRes.error,
+-												"fld": []
+-											});
+-										}
++		}
++	};
+ 
+-									} else {
++	// Обработчик ответа для контрольного запроса
++	// ----------------------------------------------
++	var _sendBCallback = function(err) {
++		if (err && this.httpError) {
++			// Контроль вернул http ошибку - повторить основной запрос
++			// Повтор, через указанное время
+-										setTimeout(
++			setTimeout(
+-											function() {
+-												req();
+-											},
++					a => dbReq.send({ callback: _sendCallback }),
+-											self.reqAfterFailTimeout
+-										);
+-									}
++					self.reqAfterFailTimeout
++			);
++		}
++	};
+ 
+-								}
+-							});
++	var dbReq = new DBRequest(reqArgA).send({ callback: _sendCallback });
+ 
+-						} else {
+-							setTimeout(
+-								function() {
+-									req();
+-								},
+-								self.reqAfterFailTimeout
+-							);
+-						}
+-
+-					} else {
+-						self.errors.push(httpRes.error);
+-
+-						dbres.err = httpRes.error;
+-
+-						error = httpRes.error;
+-
+-						// Перенастройка БД сервера
+-						if (!setAutoProp) {
+-							setAutoProp = 1;
+-							self.autoConfig({
+-								"callback": function() {
+-									reqСount = 0;
+-									req();
+-								}
++	Ajax.request({
++		"method": dbmethod,
++		"url": url,
++		"data": data,
++		"decodeFrom": "windows-1251",
++		"callback": self._onAjaxAResponse
+-							});
++	});
+ 
+-						} else {
+-							setAutoProp = 0;
+-							callback(dbres);
+-							console.log("Не удалось подключиться к БД");
+-						}
+-					}
+-				}
+ 
+-				// ----------------------------------------------
+-				// Событие, запрос с ошибкой
+-				// ----------------------------------------------
+-				error && self.emit("dbResponseError");
++	// ----------------------------------------------
++	// Событие, запрос с ошибкой
++	// ----------------------------------------------
++	error && self.emit("dbResponseError");
+ 
++
+-				// ----------------------------------------------
+-				// Логи
+-				// Если не указана папка для журнала, жарнал в файл не пишется
+-				// ----------------------------------------------
+-				var date = new Date(),
+-					hour = date.getHours(),
+-					min = date.getMinutes(),
+-					sec = date.getSeconds();
++	// ----------------------------------------------
++	// Логи
++	// Если не указана папка для журнала, жарнал в файл не пишется
++	// ----------------------------------------------
++	var date = new Date(),
++			hour = date.getHours(),
++			min = date.getMinutes(),
++			sec = date.getSeconds();
+ 
+-				var logStr = ''
+-					+ (hour.length < 2 ? '0' + hour : hour) + ':' + (min.length < 2 ? '0' + min : min) + ':' + (sec.length ? '0' + sec : sec)
+-					+ ' / err: '        + error
+-					+ ' / r: '          + reqСount
+-					+ ' / bt: '         + (self.logUseBacktrace ? new Error().stack : '')
+-					+ ' / dburl: '      + url
+-					+ ' / dbsrc: '      + dbsrc
+-					+ ' / dbname: '     + dbname
+-					+ ' / dbmethod: '   + dbmethod
+-					+ ' / query: '      + query;
++	var logStr = ''
++			+ (hour.length < 2 ? '0' + hour : hour) + ':' + (min.length < 2 ? '0' + min : min) + ':' + (sec.length ? '0' + sec : sec)
++			+ ' / err: '        + error
++			+ ' / r: '          + reqСount
++			+ ' / bt: '         + (self.logUseBacktrace ? new Error().stack : '')
++			+ ' / dburl: '      + url
++			+ ' / dbsrc: '      + dbsrc
++			+ ' / dbname: '     + dbname
++			+ ' / dbmethod: '   + dbmethod
++			+ ' / query: '      + query;
+ 
+-				self.log.push(logStr);
++	self.log.push(logStr);
+ 
+-				self.log.length > 100 && self.dblogdir && self.writeLog();
++	self.log.length > 100 && self.dblogdir && self.writeLog();
+ 
+-			} // close.Ajax.req.callback
+-		});
+-	};
+-
+ 	req();
+ 
+ 	// ----------------------------------------------
+@@ -721,8 +562,8 @@
+ 				'Src:"'             + dbsrc + '", ' +
+ 				'Login:"", '        +
+ 				'Pwd:"", '          +
+-				'Cache:"'           + self.Base64.encode("*_connectionTest") + '", ' +
+-				'Sql:"'             + self.Base64.encode("SELECT NOW() as Now;") + '"' +
++				'Cache:"'           + awwsBase64.encode("*_connectionTest") + '", ' +
++				'Sql:"'             + awwsBase64.encode("SELECT NOW() as Now;") + '"' +
+ 			'}',
+ 		"decodeFrom": "windows-1251",
+ 		"callback": function(httpErr, res) {
+@@ -815,25 +656,6 @@
+ 			}
+ 		});
+ 	}, this);
+-};
+-
+-
+-DBAwwS.prototype._utils = {
+-	/**
+-	 * @param {String} str - ввод строка
+-	 * @param {String} ch - символы, которые необходимо срезать
+-	 * @param {String=} di - "L" => LTRIM, "R" => RTRIM, "" => TRIM
+-	 * @return {String}
+-	 * */
+-	"trim": function(str, ch, di) {
+-		var regEx = [];
+-
+-		(!di || di == "L") && regEx.push("^[" + ch + "]+");
+-
+-		(!di || di == "R") && regEx.push("[" + ch + "]+$");
+-
+-		return str.replace(new RegExp(regEx.join("|"), "g"), "");
+-	}
+ };
+ 
+ 
+\ No newline at end of file
+Index: test/spec.js
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- test/spec.js	(date 1480951629000)
++++ test/spec.js	(revision )
+@@ -2,7 +2,7 @@
+ 
+ var assert = require("assert"),
+ 	modUtil = require("util"),
+-	modDBAwws = require("./../src/dbawws.js"),
++	modDBAwws = require("./../src/db-awws.js"),
+ 	connectionOptions = {
+ 		"dburl": "http://127.0.0.1:9000/db?",
+ 		"dbname": "well.demo",
+\ No newline at end of file
