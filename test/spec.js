@@ -10,6 +10,12 @@ var assert = require("assert"),
 	};
 
 describe("eg-db-awws", () => {
+	beforeEach(() => {
+		modDBAwws.prototype.instances.forEach((a) => {
+			delete modDBAwws.prototype.instances[a];
+		});
+	});
+
 	describe("Конструктор", () => {
 		var db;
 
@@ -19,7 +25,7 @@ describe("eg-db-awws", () => {
 				.getInstance(connectionOptions);
 		});
 
-		it("После инициализации содержит свойства подключения", () => {
+		it("Constructor(arg), После инициализации содержит свойства подключения (arg)", () => {
 			assert.ok(db.dbname, "dbname");
 			assert.ok(db.dbsrc, "dbsrc");
 			assert.ok(db.dburl, "dburl");
@@ -54,7 +60,37 @@ describe("eg-db-awws", () => {
 
 			it("dbres.res.length == 1", () => {
 				assert.equal(dbres.res.length, 1);
-			})
+			});
+		});
+
+		describe("Один запрос с ошибкой", () => {
+			var dbres;
+
+			before((done) => {
+				db.dbquery({
+					"query": "SELECT abc",
+					"callback": function(dbres_) {
+						dbres = dbres_;
+						done();
+					}
+				});
+			});
+
+			it("dbres.err - это строка", () => {
+				assert.ok(typeof dbres.err == "string");
+			});
+
+			it("dbres.err.length > 0", () => {
+				assert.ok(dbres.err.length > 0);
+			});
+
+			it("dbres.recs == 0", () => {
+				assert.equal(dbres.recs, 0);
+			});
+
+			it("dbres.res.length == 0", () => {
+				assert.equal(dbres.res.length, 0);
+			});
 		});
 
 		describe("Пакетный запрос", () => {
@@ -94,7 +130,7 @@ describe("eg-db-awws", () => {
 		});
 	});
 
-	describe.skip(".getDBData()", () => {
+	describe(".getDBData(arg)", () => {
 		var db;
 
 		before(() => {
@@ -103,7 +139,177 @@ describe("eg-db-awws", () => {
 				.getInstance(connectionOptions);
 		});
 
-		describe("Один запрос. SELECT NOW()", () => {
+		describe("SELECT ONLY", function() {
+			it("UPDATE == false", done => {
+				db.getDBData({
+					"query": "UPDATE TesTable SET a = 1",
+					"selectOnly": true,
+					"callback": dbres => {
+						if (dbres)
+							throw new Error("dbres is not empty");
+
+						done();
+					}
+				});
+			});
+
+			it("SELECT == true", done => {
+				db.getDBData({
+					"query": "SELECT NOW()",
+					"selectOnly": true,
+					"callback": dbres => {
+						if (!dbres)
+							throw new Error("dbres is not empty");
+
+						done();
+					}
+				});
+			});
+		});
+
+		describe("arg.format", function() {
+			describe("arg.format = 'awws'", () => {
+				var dbres;
+
+				before(done => {
+					db.getDBData({
+						query: "SELECT NOW();",
+						format: "awws",
+						callback: dbres_ => {
+							dbres = dbres_;
+							done();
+						}
+					});
+				});
+
+				it("Ответ содержит поля: fld, res, err", () => {
+					assert.ok("fld" in dbres);
+					assert.ok("res" in dbres);
+					assert.ok("err" in dbres);
+				});
+			});
+
+			describe("arg.format = 'row[col]'", () => {
+				var dbres;
+
+				before((done) => {
+					db.getDBData({
+						query: "SELECT NOW();",
+						format: "row[col]",
+						callback: (dbres_) => {
+							dbres = dbres_;
+							done();
+						}
+					});
+				});
+
+				it("Ответ (dbres) должен иметь поля recs, info = {t, t_fx, t_fabula, t_jsDecode, num_rows, errors}", () => {
+					assert.ok("info" in dbres, "dbres.info");
+					assert.ok("recs" in dbres, "dbres.recs");
+
+					["t", "t_fx", "t_fabula", "t_jsDecode", "num_rows", "errors"].forEach((a) => {
+						assert.ok(a in dbres.info, a);
+					});
+				});
+
+				it("dbres.recs - это массив, длина == 1", () => {
+					assert.ok(Array.isArray(dbres.recs));
+					assert.equal(dbres.recs.length, 1);
+				});
+
+				it("dbres.info.errors - это строка, длина == 0", () => {
+					assert.ok(typeof dbres.info.errors == "string");
+					assert.ok(!dbres.info.errors);
+				});
+
+				describe("Случай с ошибкой", () => {
+					var dbres;
+
+					before((done) => {
+						db.getDBData({
+							query: "SELECT abc;",
+							format: "row[col]",
+							callback: (dbres_) => {
+								dbres = dbres_;
+								done();
+							}
+						});
+					});
+
+					it("dbres.recs - это массив, длина == 0", () => {
+						assert.ok(Array.isArray(dbres.recs));
+						assert.equal(dbres.recs.length, 0);
+					});
+
+					it("dbres.info.errors - это строка, длина > 0", () => {
+						assert.ok(typeof dbres.info.errors == "string");
+						assert.ok(dbres.info.errors.length > 0);
+					});
+				});
+			});
+
+			describe("arg.format = 'col[row]'", () => {
+				var dbres;
+
+				before((done) => {
+					db.getDBData({
+						query: "SELECT NOW() as _now, DATE() as _date;",
+						format: "col[row]",
+						callback: (dbres_) => {
+							dbres = dbres_;
+							done();
+						}
+					});
+				});
+
+				it("Ответ (dbres) должен иметь поля recs, info = {t, t_fx, t_fabula, t_jsDecode, num_rows, errors}", () => {
+					assert.ok("info" in dbres, "dbres.info");
+					assert.ok("recs" in dbres, "dbres.recs");
+
+					["t", "t_fx", "t_fabula", "t_jsDecode", "num_rows", "errors"].forEach((a) => {
+						assert.ok(a in dbres.info, a);
+					});
+				});
+
+				it("dbres.recs - это объект с двумя массивами: _now, _date", () => {
+					assert.ok(modUtil.isObject(dbres.recs));
+					assert.equal(dbres.recs._now.length, 1);
+					assert.equal(dbres.recs._date.length, 1);
+				});
+
+				it("dbres.info.errors - это строка, длина == 0", () => {
+					assert.ok(typeof dbres.info.errors == "string");
+					assert.ok(!dbres.info.errors);
+				});
+
+				describe("Случай с ошибкой", () => {
+					var dbres;
+
+					before((done) => {
+						db.getDBData({
+							query: "SELECT abc;",
+							format: "col[row]",
+							callback: (dbres_) => {
+								dbres = dbres_;
+								done();
+							}
+						});
+					});
+
+					it("dbres.recs - это объект, длина == 0", () => {
+						assert.ok(modUtil.isObject(dbres.recs));
+						assert.equal(Object.keys(dbres.recs), 0);
+					});
+
+					it("dbres.info.errors - это строка, длина > 0", () => {
+						assert.ok(typeof dbres.info.errors == "string");
+						assert.ok(dbres.info.errors.length > 0);
+					});
+				});
+			});
+		});
+
+		describe.skip("Один запрос. SELECT NOW()", () => {
 			var dbres;
 
 			before((done) => {
@@ -122,7 +328,7 @@ describe("eg-db-awws", () => {
 			});
 		});
 
-		describe("Пакетный запрос", () => {
+		describe.skip("Пакетный запрос", () => {
 			var dbres;
 
 			before((done) => {
@@ -149,26 +355,42 @@ describe("eg-db-awws", () => {
 			b64 = modDBAwws.prototype.Base64;
 		});
 
-		it(".decode(.encode(str)) == str", () => {
+		it(".encode(str) == str", () => {
 			assert.equal(b64.encode(str), "u0LDQu9GM0YTQsCwgYmV0YSwgMTIzNDU2");
 		});
 	});
 
-	describe.skip(".checkConnection()", () => {
-		it("TODO", () => {
-			assert.ok(false, "TODO");
-		});
-	});
+	describe(".logs = []", () => {
+		describe("Ведение лога внутри экземпляра класса", () => {
+			var db, logLen;
 
-	describe.skip(".autoConfig()", () => {
-		it("TODO", () => {
-			assert.ok(false, "TODO");
-		});
-	});
+			before(() => {
+				db = modDBAwws
+						.prototype
+						.getInstance(connectionOptions);
 
-	describe.skip(".writeLog()", () => {
-		it("TODO", () => {
-			assert.ok(false, "TODO");
+				logLen = db.log.length
+			});
+
+			it("После запроса лог должен стать на один длиннее", done => {
+				db.dbquery({
+					query: "SELECT NOW();",
+					callback: (dbres) => {
+						setTimeout(() => {
+							if (logLen + 1 != db.log.length)
+								throw new Error("Длина лога не увеличилась");
+
+							done();
+						}, 100);
+					}
+				});
+			});
+		});
+
+		describe.skip(".writeLog()", () => {
+			it("TODO", () => {
+				assert.ok(false, "TODO");
+			});
 		});
 	});
 
@@ -255,7 +477,7 @@ describe("eg-db-awws", () => {
 				assert.ok(Array.isArray(modDBAwws.prototype.splitSQL(sql)));
 			});
 
-			it("массив res.length == 1", () => {
+			it("массив res.length == 3", () => {
 				assert.equal(modDBAwws.prototype.splitSQL(sql).length, 3);
 			});
 
@@ -295,6 +517,131 @@ describe("eg-db-awws", () => {
 
 			it(".trim('12345', '1245', 'R') == '123' ", () => {
 				assert.equal(u.trim("12345", "1245", "R"), "123");
+			});
+		});
+	});
+
+	describe.skip("Пустой кэш от сервера", () => {
+
+	});
+
+	describe(".checkConnection()", () => {
+		var db, propsBackup = {};
+
+		before(() => {
+			db = modDBAwws
+					.prototype
+					.getInstance(connectionOptions);
+
+			propsBackup.dburl = db.dburl;
+			propsBackup.dbsrc = db.dbsrc;
+			propsBackup.dbname = db.dbname;
+		});
+
+		beforeEach(() => {
+			Object.assign(db, propsBackup);
+		});
+
+		it("true", (done) => {
+			var arg = Object.assign({}, connectionOptions);
+			arg.callback = (isOk) => {
+				if (!isOk)
+					throw new Error("isOk == false");
+
+				done();
+			};
+
+			db.checkConnection(arg);
+		});
+
+		it("false", (done) => {
+			var arg = Object.assign({}, connectionOptions);
+			arg.dburl = "http://127.0.0.1:999/fail" + Math.random();
+			arg.callback = (isOk) => {
+				if (isOk)
+					throw new Error("isOk == false");
+
+				done();
+			};
+
+			db.checkConnection(arg);
+		});
+	});
+
+	describe.skip(".autoConfig()", () => {
+		it("TODO", () => {
+			assert.ok(false, "TODO");
+		});
+	});
+
+	describe("events", () => {
+		var db, propsBackup = {};
+
+		before(() => {
+			db = modDBAwws
+					.prototype
+					.getInstance(connectionOptions);
+
+			propsBackup.dburl = db.dburl;
+			propsBackup.dbsrc = db.dbsrc;
+			propsBackup.dbname = db.dbname;
+		});
+
+		beforeEach(() => {
+			Object.assign(db, propsBackup);
+			db.removeAllListeners("requestFail");
+			db.removeAllListeners("dbResponseError");
+			db.removeAllListeners("writeLog");
+			db.removeAllListeners("autoConfigSuccess");
+			db.removeAllListeners("autoConfigFail");
+		});
+
+		it("fire: autoConfigSuccess", (done) => {
+			db.on("autoConfigSuccess", () => {
+				done();
+			});
+
+			db.autoConfig({
+				dbconfigs: [connectionOptions]
+			});
+		});
+
+		it("fire: autoConfigFail", (done) => {
+			db.on("autoConfigFail", () => {
+				done();
+			});
+
+			var arg = Object.assign({}, propsBackup);
+			arg.dburl = "http://127.0.0.1:999/fail" + Math.random();
+
+			db.autoConfig({
+				dbconfigs: [arg]
+			});
+		});
+
+		it("fire: dbResponseError", (done) => {
+			db.on("dbResponseError", () => {
+				done();
+			});
+
+			db.dbquery({
+				query: "SELECT abc",
+				callback: dbres => {}
+			});
+		});
+
+		it("fire: requestFail", (done) => {
+			var repeats = 0;
+
+			db.dburl = "http://127.0.0.1:999/fail" + Math.random();
+
+			db.on("requestFail", () => {
+				db.reqFailRepeats == ++repeats && done();
+			});
+
+			db.dbquery({
+				query: "SELECT NOW();",
+				callback: dbres => {}
 			});
 		});
 	});

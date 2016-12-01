@@ -283,18 +283,19 @@ DBAwwS.prototype.dbquery = function(arg) {
 					} catch (err) {
 						if (typeof err.stack == "string") {
 							dbres.err = err.stack;
-							console.log(err.stack);
+							console.log(err.stack, httpRes);
 						}
 					}
 
 					// Вернулся массив?
 					// На случай пакетного запроса
 					if (!Array.isArray(dbres)) {
-						if (dbres.err) self.errors.push(dbres.err);
+						dbres.err && self.errors.push(dbres.err);
 						error = dbres.err;
 
 					} else {
 						var tmp = [];
+
 						for (var c = 0; c < dbres.length; c++) {
 							if (dbres[c].err) {
 								var tmp2 = self._utils.trim(dbres[c].err, " ;") + '(' + (c + 1) + ')';
@@ -302,8 +303,8 @@ DBAwwS.prototype.dbquery = function(arg) {
 								self.errors.push(tmp2);
 							}
 						}
-						error = tmp.join('; ');
 
+						error = tmp.join('; ');
 					}
 
 					callback(dbres);
@@ -407,33 +408,31 @@ DBAwwS.prototype.dbquery = function(arg) {
 				// ----------------------------------------------
 				// Событие, запрос с ошибкой
 				// ----------------------------------------------
-				self.emit("dbResponseError");
+				error && self.emit("dbResponseError");
 
 				// ----------------------------------------------
 				// Логи
-				// Если не указана папка для журнала, жарнал не пишется
+				// Если не указана папка для журнала, жарнал в файл не пишется
 				// ----------------------------------------------
-				if (self.dblogdir) {
-					var date = new Date(),
-						hour = date.getHours(),
-						min = date.getMinutes(),
-						sec = date.getSeconds();
+				var date = new Date(),
+					hour = date.getHours(),
+					min = date.getMinutes(),
+					sec = date.getSeconds();
 
-					var logStr = ''
-						+ (hour.length < 2 ? '0' + hour : hour) + ':' + (min.length < 2 ? '0' + min : min) + ':' + (sec.length ? '0' + sec : sec)
-						+ ' / err: ' + error
-						+ ' / r: ' + reqСount
-						+ ' / bt: ' + (self.logUseBacktrace ? new Error().stack : '')
-						+ ' / dburl: ' + url
-						+ ' / dbsrc: ' + dbsrc
-						+ ' / dbname: ' + dbname
-						+ ' / dbmethod: ' + dbmethod
-						+ ' / query: ' + query;
+				var logStr = ''
+					+ (hour.length < 2 ? '0' + hour : hour) + ':' + (min.length < 2 ? '0' + min : min) + ':' + (sec.length ? '0' + sec : sec)
+					+ ' / err: ' + error
+					+ ' / r: ' + reqСount
+					+ ' / bt: ' + (self.logUseBacktrace ? new Error().stack : '')
+					+ ' / dburl: ' + url
+					+ ' / dbsrc: ' + dbsrc
+					+ ' / dbname: ' + dbname
+					+ ' / dbmethod: ' + dbmethod
+					+ ' / query: ' + query;
 
-					self.log.push(logStr);
+				self.log.push(logStr);
 
-					self.log.length > 100 && self.writeLog();
-				}
+				self.log.length > 100 && self.dblogdir && self.writeLog();
 
 			} // close.Ajax.req.callback
 		});
@@ -465,16 +464,26 @@ DBAwwS.prototype.dbquery = function(arg) {
  * */
 DBAwwS.prototype.getDBData = function(arg) {
 
-	arg = typeof arg == "undefined" ? Object.create(null) : arg;
-	var selectOnly = typeof arg.selectOnly == "undefined" ? false : arg.selectOnly;
-	var format = typeof arg.format == "undefined" ? "col[row]" : arg.format;
-	var callback = typeof arg.callback == "function" ? arg.callback : new Function();
+	arg = typeof arg == "undefined"
+			? Object.create(null)
+			: arg;
+
+	var selectOnly = typeof arg.selectOnly == "undefined"
+			? false
+			: arg.selectOnly,
+
+		format = typeof arg.format == "undefined"
+			? "col[row]"
+			: arg.format,
+
+		callback = typeof arg.callback == "function"
+			? arg.callback
+			: new Function();
 
 	// ----------------------------------------------------
 
 	if (selectOnly) {
-
-		var SQL = query;
+		var SQL = arg.query;
 
 		SQL = this.splitSQL(SQL);
 
@@ -486,15 +495,11 @@ DBAwwS.prototype.getDBData = function(arg) {
 				return;
 			}
 		}
-
 	}
 
 	// ----------------------------------------------------
 
 	arg.callback = function(res) {
-
-		// TODO Иметь ввиду что возможно в будущем прийдется возвращать обьекты без прототипа
-
 		// ....................................
 		// Сырой ответ
 		if (format == "awws") {
@@ -504,12 +509,11 @@ DBAwwS.prototype.getDBData = function(arg) {
 
 		// ....................................
 
-		var responses = [];
-		var c, v, b, row, col, colname;
+		var responses = [],
+			c, v, b, row, col, colname;
 
-		if (typeof res.push == 'undefined') {
+		if (typeof res.push == 'undefined')
 			res = [res];
-		}
 
 		for (c = 0; c < res.length; c++) {
 			var response = {
@@ -561,7 +565,6 @@ DBAwwS.prototype.getDBData = function(arg) {
 						response.info.num_rows++;
 					}
 				}
-
 			}
 
 			responses.push(response);
@@ -688,10 +691,7 @@ DBAwwS.prototype.checkConnection = function(arg) {
 DBAwwS.prototype.autoConfig = function(arg) {
 	if (typeof arg == "undefined") arg = Object.create(null);
 
-	var c,
-		self = this,
-
-		callback = typeof arg.callback == "function"
+	var callback = typeof arg.callback == "function"
 			? arg.callback
 			: new Function(),
 
@@ -699,66 +699,49 @@ DBAwwS.prototype.autoConfig = function(arg) {
 			? arg.dbconfigs
 			: this.dbconfigs,
 
-		selected = false,
-		tmp_counter = 0;
-
-	// --------------------------------------------------
+		hasSelected = false,
+		checksCounter = 0;
 
 	if (!Array.isArray(dbconfigs) || !dbconfigs.length) return;
 
-	// --------------------------------------------------
-
-	for (c = 0; c < dbconfigs.length; c++) {
+	dbconfigs.forEach((dbconfig) => {
 		if (
-			typeof dbconfigs[c].dburl != "string"
-			|| typeof dbconfigs[c].dbname != "string"
-			|| typeof dbconfigs[c].dbsrc != "string"
-		) {
-			continue;
-		}
+			typeof dbconfig.dburl != "string"
+			|| typeof dbconfig.dbname != "string"
+			|| typeof dbconfig.dbsrc != "string"
+		) return;
 
-		(function() {
-			// this.dburl = db_urls[c];
-			var dbconfig = dbconfigs[c];
+		this.checkConnection({
+			"dburl": dbconfig.dburl,
+			"dbsrc": dbconfig.dbsrc,
+			"dbname": dbconfig.dbname,
+			"callback": res => {
+				if (hasSelected) return;
 
-			self.checkConnection({
-				"dburl": dbconfig.dburl,
-				"dbsrc": dbconfig.dbsrc,
-				"dbname": dbconfig.dbname,
-				"callback": function(res) {
+				if (res) {
+					// Соединение с БД установлено
+					hasSelected = true;
 
-					tmp_counter++;
+					this.dburl = dbconfig.dburl;
+					this.dbsrc = dbconfig.dbsrc;
+					this.dbname = dbconfig.dbname;
+					this.dblogdir = dbconfig.dblogdir;
 
-					if (selected) return;
+					this.emit("autoConfigSuccess");
 
-					if (res) {
-						selected = true;
+					callback(true);
 
-						self.dburl = dbconfig.dburl;
-						self.dbsrc = dbconfig.dbsrc;
-						self.dbname = dbconfig.dbname;
-						self.dblogdir = dbconfig.dblogdir;
-
-						// console.log("Соединение с БД установлено");
-
-						self.emit("autoConfigSuccess");
-
-						callback(true);
-
-						return;
-					}
-
-					if (tmp_counter == dbconfigs.length && !selected) {
-						self.emit("autoConfigFail");
-						// console.log("Не удалось подключиться к базе данных");
-						// process.exit(0);
-						callback(false);
-					}
-
+					return;
 				}
-			});
-		})();
-	}
+
+				if (++checksCounter == dbconfigs.length && !hasSelected) {
+					// Не удалось подключиться к базе данных
+					this.emit("autoConfigFail");
+					callback(false);
+				}
+			}
+		});
+	}, this);
 };
 
 
