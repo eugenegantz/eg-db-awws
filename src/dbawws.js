@@ -1,9 +1,9 @@
-var modPath = require("path"),
-	modFs = require("fs"),
-	Ajax = require("eg-node-ajax"),
-	modUtil = require("util"),
-	EventEmitter = require("events"),
-	lodash = require("lodash");
+var modPath         = require("path"),
+	modFs           = require("fs"),
+	Ajax            = require("eg-node-ajax"),
+	modUtil         = require("util"),
+	EventEmitter    = require("events");
+
 
 /**
  * @constructor
@@ -16,7 +16,6 @@ var DBAwwS = function(arg) {
 	// Не изменять ключи,
 	// через них могут взаимодействовать другие программы
 	// ------------------------
-
 	this.dbconfigs      = [];
 	this.dburl          = null;
 	this.dbname         = null;
@@ -142,16 +141,15 @@ DBAwwS.prototype.encodeQuery = function(arg) {
  * @return {Array}
  * */
 DBAwwS.prototype.splitSQL = function(s) {
-	var c;
+	var c, L, q;
 
-	for (c = 0; c < 2; c++) {
-		s = lodash.trim(s, ' ;\t\n\r\0\x0B');
-	}
+	for (c = 0; c < 2; c++)
+		s = this._utils.trim(s, ' ;\t\n\r\0\x0B');
 
 	s = s.split('');
 
-	var L = s.length;
-	var q = '';
+	L = s.length;
+	q = '';
 
 	for (c = 0; c < L; c++) {
 		if (
@@ -174,9 +172,8 @@ DBAwwS.prototype.splitSQL = function(s) {
 			}
 		}
 
-		if (s[c] == ';' && !q) {
+		if (s[c] == ';' && !q)
 			s[c] = ';[[[*SPLIT*]]]';
-		}
 	}
 
 	return s.join('').split(';[[[*SPLIT*]]]');
@@ -300,7 +297,7 @@ DBAwwS.prototype.dbquery = function(arg) {
 						var tmp = [];
 						for (var c = 0; c < dbres.length; c++) {
 							if (dbres[c].err) {
-								var tmp2 = lodash.trim(dbres[c].err, " ;") + '(' + (c + 1) + ')';
+								var tmp2 = self._utils.trim(dbres[c].err, " ;") + '(' + (c + 1) + ')';
 								tmp.push(tmp2);
 								self.errors.push(tmp2);
 							}
@@ -416,7 +413,6 @@ DBAwwS.prototype.dbquery = function(arg) {
 				// Логи
 				// Если не указана папка для журнала, жарнал не пишется
 				// ----------------------------------------------
-
 				if (self.dblogdir) {
 					var date = new Date(),
 						hour = date.getHours(),
@@ -631,26 +627,34 @@ DBAwwS.prototype.writeLog = function() {
  * Проверить соединение
  * */
 DBAwwS.prototype.checkConnection = function(arg) {
+	if (typeof arg == "undefined")
+		arg = Object.create(null);
 
-	if (typeof arg == "undefined") arg = Object.create(null);
-	if (typeof arg.callback == "undefined") arg.callback = new Function();
+	if (typeof arg.callback == "undefined")
+		arg.callback = new Function();
 
-	var dburl = arg.dburl;
-	var dbsrc = arg.dbsrc;
-	var dbname = arg.dbname;
-
-	var self = this;
+	var self = this,
+		dburl = arg.dburl,
+		dbsrc = arg.dbsrc,
+		dbname = arg.dbname;
 
 	Ajax.request({
 		"method": "post",
 		"url": dburl,
-		"data": '{id:0, Conf:"' + dbname + '", Src:"' + dbsrc + '", Login:"", Pwd:"", Cache:"' + self.Base64.encode("*_connectionTest") + '", Sql:"' + self.Base64.encode("SELECT NOW() as Now;") + '"}',
+		"data": '' +
+			'{' +
+				'id:0, Conf:"' + dbname + '", ' +
+				'Src:"' + dbsrc + '", ' +
+				'Login:"", ' +
+				'Pwd:"", ' +
+				'Cache:"' + self.Base64.encode("*_connectionTest") + '", ' +
+				'Sql:"' + self.Base64.encode("SELECT NOW() as Now;") + '"' +
+			'}',
 		"decodeFrom": "windows-1251",
 		"callback": function(httpErr, res) {
 			// Если есть ошибки возвращает false;
 
 			if (!res.error) {
-
 				if (!res.responseText) {
 					// Ответ пустой
 					arg.callback(false);
@@ -669,26 +673,23 @@ DBAwwS.prototype.checkConnection = function(arg) {
 					} else {
 						// Соединение установлено
 						arg.callback(true);
-
 					}
-
 				}
 
 			} else {
 				// Ошибка http подключения
 				arg.callback(false);
-
 			}
 		} // callback
 	}); // Ajax.req
-
 };
 
 
 DBAwwS.prototype.autoConfig = function(arg) {
 	if (typeof arg == "undefined") arg = Object.create(null);
 
-	var self = this,
+	var c,
+		self = this,
 
 		callback = typeof arg.callback == "function"
 			? arg.callback
@@ -696,7 +697,10 @@ DBAwwS.prototype.autoConfig = function(arg) {
 
 		dbconfigs = typeof arg.dbconfigs == "object" && modUtil.isArray(arg.dbconfigs)
 			? arg.dbconfigs
-			: this.dbconfigs;
+			: this.dbconfigs,
+
+		selected = false,
+		tmp_counter = 0;
 
 	// --------------------------------------------------
 
@@ -704,13 +708,7 @@ DBAwwS.prototype.autoConfig = function(arg) {
 
 	// --------------------------------------------------
 
-	var selected = false;
-
-	var tmp_counter = 0;
-
-	// --------------------------------------------------
-
-	for (var c = 0; c < dbconfigs.length; c++) {
+	for (c = 0; c < dbconfigs.length; c++) {
 		if (
 			typeof dbconfigs[c].dburl != "string"
 			|| typeof dbconfigs[c].dbname != "string"
@@ -718,6 +716,7 @@ DBAwwS.prototype.autoConfig = function(arg) {
 		) {
 			continue;
 		}
+
 		(function() {
 			// this.dburl = db_urls[c];
 			var dbconfig = dbconfigs[c];
@@ -761,5 +760,24 @@ DBAwwS.prototype.autoConfig = function(arg) {
 		})();
 	}
 };
+
+
+DBAwwS.prototype._utils = {
+	/**
+	 * @param {String} str - ввод строка
+	 * @param {String} ch - символы, которые необходимо срезать
+	 * @param {String} di - "L" => LTRIM, "R" => RTRIM, "" => TRIM
+	 * */
+	"trim": function(str, ch, di) {
+		var regEx = [];
+
+		(!di || di == "L") && regEx.push("^[" + ch + "]+");
+
+		(!di || di == "R") && regEx.push("[" + ch + "]+$");
+
+		return str.replace(new RegExp(regEx.join("|"), "g"), "");
+	}
+};
+
 
 module.exports = DBAwwS;
