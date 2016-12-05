@@ -145,8 +145,8 @@ describe("eg-db-awws", () => {
 					"query": "UPDATE TesTable SET a = 1",
 					"selectOnly": true,
 					"callback": dbres => {
-						if (dbres)
-							throw new Error("dbres is not empty");
+						if (dbres.info.errors != "Expected ONLY select queries")
+							throw new Error(`wrong err message. "${dbres.info.errors}" given`);
 
 						done();
 					}
@@ -375,7 +375,7 @@ describe("eg-db-awws", () => {
 			it("После запроса лог должен стать на один длиннее", done => {
 				db.dbquery({
 					query: "SELECT NOW();",
-					callback: (dbres) => {
+					callback: () => {
 						setTimeout(() => {
 							if (logLen + 1 != db.log.length)
 								throw new Error("Длина лога не увеличилась");
@@ -491,6 +491,36 @@ describe("eg-db-awws", () => {
 		});
 	});
 
+	describe(".hasOnlySelectQuery()", () => {
+		it("SELECT == TRUE", () => {
+			var sql = "SELECT 1+1 AS col_sum";
+
+			assert.ok(modDBAwws.prototype.hasOnlySelectQuery(sql));
+		});
+
+		it("DELETE == FALSE", () => {
+			var sql = "DELETE FROM TableTest";
+
+			assert.ok(!modDBAwws.prototype.hasOnlySelectQuery(sql));
+		});
+
+		it("SELECT; SELECT; UPDATE == FALSE", () => {
+			var sql = "SELECT 1+1 AS col_sum;" +
+					"SELECT 2+2 AS col_sum;" +
+					"UPDATE TableTest SET col_a = 1";
+
+			assert.ok(!modDBAwws.prototype.hasOnlySelectQuery(sql));
+		});
+
+		it("SELECT; SELECT; SELECT == TRUE", () => {
+			var sql = "SELECT 1+1 AS col_sum;" +
+					"SELECT 2+2 AS col_sum;" +
+					"SELECT 3+3 AS col_sum;";
+
+			assert.ok(modDBAwws.prototype.hasOnlySelectQuery(sql));
+		});
+	});
+
 	describe("._utils", () => {
 		var u;
 
@@ -521,7 +551,17 @@ describe("eg-db-awws", () => {
 		});
 	});
 
-	describe.skip("Пустой кэш от сервера", () => {
+	describe.skip("rapidCache", () => {
+		var db;
+
+		before(() => {
+			db = modDBAwws
+					.prototype
+					.getInstance(connectionOptions);
+		});
+	});
+
+	describe.skip("Костыль: случай когда сервер возвращает пустой кэш", () => {
 
 	});
 

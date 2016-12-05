@@ -10,6 +10,9 @@ var modPath         = require("path"),
  * @module eg-db-awws
  * */
 var DBAwwS = function(arg) {
+	if (typeof arg != "object")
+		throw new Error(`arg supposed to be "object". "${typeof arg}" given`);
+
 	EventEmitter.call(this);
 
 	// ------------------------
@@ -30,6 +33,27 @@ var DBAwwS = function(arg) {
 	this.awwsCacheEnable        = true;
 	this.logUseBacktrace        = false;
 	this.reqAfterFailTimeout    = 500;
+	this._rapidCacheStorage = Object.create(null);
+
+	// "rapidCache" - возвращает быстрый кэш для одинаковых запросов
+	// в течении настроенного времени
+	// По умолчанию отключен
+	this.rapidCache = void 0;
+
+	/*
+	// Пример настройки
+	this.rapidCache = [
+		{
+			"timeout": 2000, // ПАРАМЕТР
+			"ifEmptyResponse": true, // ИЛИ
+			"ifSameClient": true // ИЛИ
+		}, // И
+		{
+			"timeout": 8000, // ПАРАМЕТР
+			"ifEmptyResponse": false // ИЛИ
+		} // И
+	];
+	*/
 
 	this.instances.push(this);
 
@@ -51,6 +75,7 @@ DBAwwS.prototype.instances = [];
 
 /**
  * Получить экземпляр
+ * @param {Object} arg - аргументы в конструктор
  * */
 DBAwwS.prototype.getInstance = function(arg) {
 	return this.instances.length ? this.instances[0] : new DBAwwS(arg);
@@ -63,10 +88,20 @@ DBAwwS.prototype.getInstance = function(arg) {
 DBAwwS.prototype.Base64 = {
 	"_keyStr": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=",
 
+	/**
+	 * Закодировать строку в base64
+	 * @param {String} input
+	 * @return {String}
+	 * */
 	"encode": function(input) {
 		if (!input) return "";
-		var i = 0, output = "", chr1, chr2, chr3, enc1, enc2, enc3, enc4;
+
+		var chr1, chr2, chr3, enc1, enc2, enc3, enc4,
+			i = 0,
+			output = "";
+
 		input = this._utf8_encode(input);
+
 		while (i < input.length) {
 			chr1 = input.charCodeAt(i++);
 			chr2 = input.charCodeAt(i++);
@@ -75,29 +110,41 @@ DBAwwS.prototype.Base64 = {
 			enc2 = ((chr1 & 3) << 4) | (chr2 >> 4);
 			enc3 = ((chr2 & 15) << 2) | (chr3 >> 6);
 			enc4 = chr3 & 63;
+
 			if (isNaN(chr2))  enc3 = enc4 = 64;
 			else if (isNaN(chr3)) enc4 = 64;
-			output += this._keyStr.charAt(enc1) + this._keyStr.charAt(enc2) + this._keyStr.charAt(enc3) + this._keyStr.charAt(enc4);
+
+			output += this._keyStr.charAt(enc1) +
+					this._keyStr.charAt(enc2) +
+					this._keyStr.charAt(enc3) +
+					this._keyStr.charAt(enc4);
 		}
+
 		return output.substr(4, 1) + output;
 	},
 
 	"_utf8_encode": function(string) {
 		string = string.replace(/\r\n/g, "\n");
-		var utftext = "";
-		for (var n = 0; n < string.length; n++) {
-			var c = string.charCodeAt(n);
+
+		var c, n, utftext = "";
+
+		for (n = 0; n < string.length; n++) {
+			c = string.charCodeAt(n);
+
 			if (c < 128)
 				utftext += String.fromCharCode(c);
+
 			else if ((c > 127) && (c < 2048)) {
 				utftext += String.fromCharCode((c >> 6) | 192);
 				utftext += String.fromCharCode((c & 63) | 128);
+
 			} else {
 				utftext += String.fromCharCode((c >> 12) | 224);
 				utftext += String.fromCharCode(((c >> 6) & 63) | 128);
 				utftext += String.fromCharCode((c & 63) | 128);
 			}
 		}
+
 		return utftext;
 	}
 };
@@ -116,22 +163,21 @@ DBAwwS.prototype.encodeQuery = function(arg) {
 	var dbmethod = arg.dbmethod.toUpperCase(),
 		s = [
 			"id:0",
-			"Conf:\"" + arg.dbname + "\"",
-			"Src:\"" + arg.dbsrc + "\"",
+			"Conf:\""       + arg.dbname + "\"",
+			"Src:\""        + arg.dbsrc + "\"",
 			"Login:\"\"",
 			"Pwd:\"\"",
-			"Cache:\"" + this.Base64.encode(arg.dbcache) + "\"",
-			"Sql:\"" + this.Base64.encode(arg.query) + "\""
+			"Cache:\""      + this.Base64.encode(arg.dbcache) + "\"",
+			"Sql:\""        + this.Base64.encode(arg.query) + "\""
 		];
 
 	s = "{" + s.join(",") + "}";
 
-	if (dbmethod == "POST") {
+	if (dbmethod == "POST")
 		return s;
 
-	} else if (dbmethod == "GET") {
+	if (dbmethod == "GET")
 		return this.Base64.encode(s);
-	}
 };
 
 
@@ -141,15 +187,16 @@ DBAwwS.prototype.encodeQuery = function(arg) {
  * @return {Array}
  * */
 DBAwwS.prototype.splitSQL = function(s) {
-	var c, L, q;
+	s = this
+			._utils.trim(s, ' ;\\t\\n\\r\\0\\x0B')
+			.split('');
 
-	for (c = 0; c < 2; c++)
-		s = this._utils.trim(s, ' ;\t\n\r\0\x0B');
-
-	s = s.split('');
-
-	L = s.length;
-	q = '';
+	var c,
+		L = s.length,
+		last = L - 1,
+		q = "",
+		ret = [],
+		subRet = "";
 
 	for (c = 0; c < L; c++) {
 		if (
@@ -172,11 +219,36 @@ DBAwwS.prototype.splitSQL = function(s) {
 			}
 		}
 
-		if (s[c] == ';' && !q)
-			s[c] = ';[[[*SPLIT*]]]';
+		if ((s[c] == ';') && !q)
+			ret.push(subRet) && (subRet = "");
+		else
+			(subRet += s[c])
+				&& c == last && ret.push(subRet);
 	}
 
-	return s.join('').split(';[[[*SPLIT*]]]');
+	return ret;
+};
+
+
+/**
+ * Являются ли переданные запросы SELECT'ами
+ * @param {String | Array} query - запрос
+ * @return {Boolean}
+ * */
+DBAwwS.prototype.hasOnlySelectQuery = function(query) {
+	if (typeof query == "string")
+		query = this.splitSQL(query);
+
+	if (!Array.isArray(query))
+		throw new Error (`query supposed to be "String" or "Array". "${typeof query}" given`);
+
+	for (let c = 0; c < query.length; c++) {
+		if (query[c].trim().match(/^select/i)) continue;
+
+		return false;
+	}
+
+	return true;
 };
 
 
@@ -190,19 +262,20 @@ DBAwwS.prototype.splitSQL = function(s) {
  * */
 /**
  * @param {String} arg.query - текст запроса
- * @param {String} arg.dbsrc
- * @param {String} arg.dbname
- * @param {String} arg.query_b - текст второго запроса для проверки первого, например, в случае отвала соединения
- * @param {String} arg.dbmethod - метод запроса (GET|POST)
- * @param {String} arg.dburl
- * @param {String} arg.dbcache - идентификатор кэша
- * @param {DBAwwS~dbQueryCallback} arg.callback - функция ответ
+ * @param {String=} arg.dbsrc
+ * @param {String=} arg.dbname
+ * @param {String=} arg.query_b - текст второго запроса для проверки первого, например, в случае отвала соединения
+ * @param {String=} arg.dbmethod - метод запроса (GET|POST)
+ * @param {String=} arg.dburl
+ * @param {String=} arg.dbcache - идентификатор кэша
+ * @param {DBAwwS~dbQueryCallback=} arg.callback - функция ответ
  * */
 DBAwwS.prototype.dbquery = function(arg) {
 	// ----------------------------------------------
 	// Входящие параметры
 	// ----------------------------------------------
-	arg = typeof arg == "undefined" ? Object.create(null) : arg;
+	if (typeof arg != "object")
+		throw new Error(`arg supposed to be "Object". "${typeof arg}" given`);
 
 	var self        = this,
 		query_b     = typeof arg.query_b == "string" && arg.query_b ? arg.query_b : null,
@@ -211,13 +284,14 @@ DBAwwS.prototype.dbquery = function(arg) {
 		dbmethod    = typeof arg.dbmethod == "string" && arg.dbmethod ? arg.dbmethod.toUpperCase() : "POST",
 		url         = arg.url || arg.dburl || self.dburl || null,
 		callback    = typeof arg.callback == "function" ? arg.callback : new Function(),
-		dbCache     = typeof arg.dbcache == "string" && arg.dbcache.length > 4 ? arg.dbcache : "*_ps";
+		dbCache     = typeof arg.dbcache == "string" && arg.dbcache.length > 4 ? arg.dbcache : "*_ps",
+		isSelectQuery = this.hasOnlySelectQuery(arg.query);
 
 	if (typeof arg.query != "string")
-		throw new Error("arg.query suppose to be String");
+		throw new Error(`arg.query supposed to be "String". "${typeof arg}" given`);
 
 	if (!arg.query)
-		throw new Error("!arg.query");
+		throw new Error(`arg.query is empty`);
 
 	var query = arg.query;
 
@@ -276,6 +350,8 @@ DBAwwS.prototype.dbquery = function(arg) {
 
 				// Ошибки запроса?
 				if (!httpRes.error) {
+					// TODO if !sdbres
+
 					try {
 						// Содержимое ответа из БД
 						dbres = eval("(" + httpRes.responseText + ")");
@@ -421,14 +497,14 @@ DBAwwS.prototype.dbquery = function(arg) {
 
 				var logStr = ''
 					+ (hour.length < 2 ? '0' + hour : hour) + ':' + (min.length < 2 ? '0' + min : min) + ':' + (sec.length ? '0' + sec : sec)
-					+ ' / err: ' + error
-					+ ' / r: ' + reqСount
-					+ ' / bt: ' + (self.logUseBacktrace ? new Error().stack : '')
-					+ ' / dburl: ' + url
-					+ ' / dbsrc: ' + dbsrc
-					+ ' / dbname: ' + dbname
-					+ ' / dbmethod: ' + dbmethod
-					+ ' / query: ' + query;
+					+ ' / err: '        + error
+					+ ' / r: '          + reqСount
+					+ ' / bt: '         + (self.logUseBacktrace ? new Error().stack : '')
+					+ ' / dburl: '      + url
+					+ ' / dbsrc: '      + dbsrc
+					+ ' / dbname: '     + dbname
+					+ ' / dbmethod: '   + dbmethod
+					+ ' / query: '      + query;
 
 				self.log.push(logStr);
 
@@ -454,19 +530,20 @@ DBAwwS.prototype.dbquery = function(arg) {
  * */
 /**
  * @param {String} arg.query - текст запроса
- * @param {String} arg.dbsrc
- * @param {String} arg.dbname
- * @param {String} arg.query_b - текст второго запроса для проверки первого, например, в случае отвала соединения
- * @param {String} arg.dbmethod - метод запроса (GET|POST)
- * @param {String} arg.dburl
- * @param {String} arg.dbcache - идентификатор кэша
- * @param {DBAwwS~getDBDataCallback} arg.callback - функция ответ
+ * @param {String=} arg.dbsrc
+ * @param {String=} arg.dbname
+ * @param {String=} arg.query_b - текст второго запроса для проверки первого, например, в случае отвала соединения
+ * @param {String=} arg.dbmethod - метод запроса (GET|POST)
+ * @param {String=} arg.dburl
+ * @param {String=} arg.dbcache - идентификатор кэша
+ * @param {Boolean=} arg.selectOnly
+ * @param {String=} arg.format - структура ответа
+ * @param {DBAwwS~getDBDataCallback=} arg.callback - функция ответ
  * */
 DBAwwS.prototype.getDBData = function(arg) {
 
-	arg = typeof arg == "undefined"
-			? Object.create(null)
-			: arg;
+	if (typeof arg != "object")
+		throw new Error(`arg supposed to be "Object". "${typeof arg}" given`);
 
 	var selectOnly = typeof arg.selectOnly == "undefined"
 			? false
@@ -482,20 +559,8 @@ DBAwwS.prototype.getDBData = function(arg) {
 
 	// ----------------------------------------------------
 
-	if (selectOnly) {
-		var SQL = arg.query;
-
-		SQL = this.splitSQL(SQL);
-
-		for (var c = 0; c < SQL.length; c++) {
-			SQL[c] = SQL[c].trim();
-			var sn = SQL[c].split(" ");
-			if (sn[0].toLowerCase() != 'select') {
-				callback();
-				return;
-			}
-		}
-	}
+	if (selectOnly && !this.hasOnlySelectQuery(arg.query))
+		return callback({ info: { errors: "Expected ONLY select queries" } } );
 
 	// ----------------------------------------------------
 
@@ -582,6 +647,7 @@ DBAwwS.prototype.getDBData = function(arg) {
 
 
 /**
+ * Метод записывающий файл журнала
  * @ignore
  * */
 DBAwwS.prototype.writeLog = function() {
@@ -628,13 +694,18 @@ DBAwwS.prototype.writeLog = function() {
 
 /**
  * Проверить соединение
+ * @param {Object} arg
+ * @param {Function} arg.callback
+ * @param {String} arg.dburl - ссылка на БД awws. К примеру: "http://localhost:9000/db?"
+ * @param {String} arg.dbsrc - источник БД. Например: "main"
+ * @param {String} arg.dbname - название БД. Например: "well.demo"
  * */
 DBAwwS.prototype.checkConnection = function(arg) {
-	if (typeof arg == "undefined")
-		arg = Object.create(null);
+	if (!arg)
+		throw new Error(`1st argument supposed to be "Object". "arg" is "${typeof arg}"`);
 
-	if (typeof arg.callback == "undefined")
-		arg.callback = new Function();
+	if (typeof arg.callback != "function")
+		throw new Error(`arg.callback supposed to be "Function". arg.callback is "${typeof arg}"`);
 
 	var self = this,
 		dburl = arg.dburl,
@@ -646,50 +717,52 @@ DBAwwS.prototype.checkConnection = function(arg) {
 		"url": dburl,
 		"data": '' +
 			'{' +
-				'id:0, Conf:"' + dbname + '", ' +
-				'Src:"' + dbsrc + '", ' +
-				'Login:"", ' +
-				'Pwd:"", ' +
-				'Cache:"' + self.Base64.encode("*_connectionTest") + '", ' +
-				'Sql:"' + self.Base64.encode("SELECT NOW() as Now;") + '"' +
+				'id:0, Conf:"'      + dbname + '", ' +
+				'Src:"'             + dbsrc + '", ' +
+				'Login:"", '        +
+				'Pwd:"", '          +
+				'Cache:"'           + self.Base64.encode("*_connectionTest") + '", ' +
+				'Sql:"'             + self.Base64.encode("SELECT NOW() as Now;") + '"' +
 			'}',
 		"decodeFrom": "windows-1251",
 		"callback": function(httpErr, res) {
 			// Если есть ошибки возвращает false;
-
-			if (!res.error) {
-				if (!res.responseText) {
-					// Ответ пустой
-					arg.callback(false);
-
-				} else {
-					res = eval("(" + res.responseText + ")");
-
-					if (res.err) {
-						// Есть ошибки в БД
-						arg.callback(false);
-
-					} else if (!res.recs) {
-						// Число строк = 0
-						arg.callback(false);
-
-					} else {
-						// Соединение установлено
-						arg.callback(true);
-					}
-				}
-
-			} else {
+			if (res.error)
 				// Ошибка http подключения
-				arg.callback(false);
-			}
+				return arg.callback(false);
+
+			if (!res.responseText)
+				// Ответ пустой
+				return arg.callback(false);
+
+			res = eval("(" + res.responseText + ")");
+
+			if (res.err)
+				// Есть ошибки в БД
+				return arg.callback(false);
+
+			if (!res.recs)
+				// Число строк = 0
+				return arg.callback(false);
+
+			// Соединение установлено
+			arg.callback(true);
+
 		} // callback
 	}); // Ajax.req
 };
 
 
+/**
+ * Автонастройка подключения к БД
+ * Принимает массив настроек, подбирает одну рабочую
+ * @param {Object} arg - аргументы
+ * @param {Function=} arg.callback
+ * @param {Array} arg.dbconfigs - массив доступных настроек
+ * */
 DBAwwS.prototype.autoConfig = function(arg) {
-	if (typeof arg == "undefined") arg = Object.create(null);
+	if (typeof arg != "object")
+		throw new Error(`arg supposed to be "Object". "${typeof arg}" given`);
 
 	var callback = typeof arg.callback == "function"
 			? arg.callback
@@ -749,7 +822,8 @@ DBAwwS.prototype._utils = {
 	/**
 	 * @param {String} str - ввод строка
 	 * @param {String} ch - символы, которые необходимо срезать
-	 * @param {String} di - "L" => LTRIM, "R" => RTRIM, "" => TRIM
+	 * @param {String=} di - "L" => LTRIM, "R" => RTRIM, "" => TRIM
+	 * @return {String}
 	 * */
 	"trim": function(str, ch, di) {
 		var regEx = [];
