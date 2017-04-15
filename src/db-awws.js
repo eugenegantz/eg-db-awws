@@ -59,6 +59,11 @@ var DBAwwS = function(arg) {
 	arg && Object.keys(arg).forEach((a) => {
 		this[a] = arg[a];
 	});
+
+	if (this.dblogdir) {
+		process.on('beforeExit', this._onProcessExit.bind(this));
+		process.on('SIGINT', this._onProcessExit.bind(this));
+	}
 };
 
 
@@ -67,6 +72,14 @@ modUtil.inherits(DBAwwS, EventEmitter);
 
 
 DBAwwS.prototype.instances = [];
+
+
+/**
+ * Обработчик на случай завершения программы
+ * */
+DBAwwS.prototype._onProcessExit = function() {
+	this.writeLog();
+};
 
 
 /**
@@ -548,22 +561,18 @@ DBAwwS.prototype._onDoneCallback = function(err, ctx) {
 
 	var self = this,
 		date = new Date(),
-		hour = date.getHours(),
-		min = date.getMinutes(),
-		sec = date.getSeconds(),
 
-		logStr = '' +
-			+ (hour.length < 2 ? '0' + hour : hour)
-			+ ':' + (min.length < 2 ? '0' + min : min)
-			+ ':' + (sec.length ? '0' + sec : sec)
-			+ ' / err: '        + err
-			+ ' / r: '          + ctx.reqСount
-			+ ' / bt: '         + (self.logUseBacktrace ? new Error().stack : '')
-			+ ' / dburl: '      + ctx.dburl
-			+ ' / dbsrc: '      + ctx.dbsrc
-			+ ' / dbname: '     + ctx.dbname
-			+ ' / dbmethod: '   + ctx.dbmethod
-			+ ' / query: '      + ctx.query;
+		logStr = JSON.stringify({
+			date,
+			err,
+			r: ctx.reqСount,
+			bt: self.logUseBacktrace ? new Error().stack : '',
+			dburl: ctx.dburl,
+			dbsrc: ctx.dbsrc,
+			dbname: ctx.dbname,
+			dbmethod: ctx.dbmethod,
+			query: ctx.query
+		});
 
 	err && self.errors.push(err);
 
