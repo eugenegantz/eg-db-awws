@@ -30,6 +30,7 @@ var DBAwwS = function(arg) {
 	this.dbname         = null;
 	this.dbsrc          = null;
 	this.dblogdir       = null;
+	this.dbworker       = "";
 
 	// ------------------------
 
@@ -221,6 +222,7 @@ DBAwwS.prototype.dbquery = function(arg) {
 
 	var self            = this,
 		query_b         = arg.query_b,
+		dbworker        = (arg.dbworker || this.dbworker || "").trim(),
 		dbsrc           = arg.dbsrc || this.dbsrc,
 		dbname          = arg.dbname || this.dbname,
 		dbmethod        = (arg.dbmethod && arg.dbmethod.toUpperCase()) || "POST",
@@ -232,6 +234,9 @@ DBAwwS.prototype.dbquery = function(arg) {
 		hasArgSpCn = arg.query || arg.dbsrc || arg.dbname || arg.dbmethod,
 
 		rapidDBreq, dbReq;
+
+	// автоматическая балансировка запросов
+	dbsrc = dbworker + dbsrc;
 
 	if (!this.awwsCacheEnable) dbCache = "";
 
@@ -560,12 +565,14 @@ DBAwwS.prototype._onDoneCallback = function(err, ctx) {
 	// self - экземпляр DBAwwS;
 
 	var self = this,
+		resData = [].concat(ctx.responseData),
+		t = resData.map(res => (res || '') && res.t).join(', '),
 		date = new Date(),
-
 		logStr = JSON.stringify({
 			date,
 			err,
 			r: ctx.reqСount,
+			t,
 			bt: self.logUseBacktrace ? new Error().stack : '',
 			dburl: ctx.dburl,
 			dbsrc: ctx.dbsrc,
@@ -870,6 +877,7 @@ DBAwwS.prototype.autoConfig = function(arg) {
 					this.dbsrc = dbconfig.dbsrc;
 					this.dbname = dbconfig.dbname;
 					this.dblogdir = dbconfig.dblogdir;
+					this.dbworker = dbconfig.dbworker || "";
 
 					this.emit("autoConfigSuccess");
 
