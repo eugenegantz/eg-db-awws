@@ -567,16 +567,19 @@ DBAwwS.prototype._onDoneCallback = function(err, ctx) {
 	var self = this,
 		resData = [].concat(ctx.responseData),
 		t = resData.map(res => (res || '') && res.t).join(', '),
+		recs = resData.map(res => (res || '') && res.recs).join(', '),
 		date = new Date(),
 		logStr = JSON.stringify({
-			date,
 			err,
+			date,
 			r: ctx.reqСount,
+			recs,
 			t,
 			bt: self.logUseBacktrace ? new Error().stack : '',
 			dburl: ctx.dburl,
 			dbsrc: ctx.dbsrc,
 			dbname: ctx.dbname,
+			dbcache: ctx.dbcache || "",
 			dbmethod: ctx.dbmethod,
 			query: ctx.query
 		});
