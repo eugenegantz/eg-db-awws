@@ -216,27 +216,31 @@ DBAwwS.prototype.dbquery = function(arg) {
 	"dbmethod" in arg   && Va.var(Va.r.str.type(arg.dbmethod),  Va.r.str.minLen(arg.dbmethod,   1)).throw();
 	"dburl" in arg      && Va.var(Va.r.str.type(arg.dburl),     Va.r.str.minLen(arg.dburl,      1)).throw();
 	"dbname" in arg     && Va.var(Va.r.str.type(arg.dbname),    Va.r.str.minLen(arg.dbname,     1)).throw();
-	"dbcache" in arg    && Va.var(Va.r.str.type(arg.dbcache),   Va.r.str.minLen(arg.dbcache,    4)).throw();
 
 	arg.callback    && Va.var(Va.r.fn.type(arg.callback)).throw();
 
 	var self            = this,
-		query_b         = arg.query_b,
 		dbworker        = (arg.dbworker || this.dbworker || "").trim(),
 		dbsrc           = arg.dbsrc || this.dbsrc,
 		dbname          = arg.dbname || this.dbname,
 		dbmethod        = (arg.dbmethod && arg.dbmethod.toUpperCase()) || "POST",
 		dburl           = arg.url || arg.dburl || self.dburl,
 		callback        = arg.callback || new Function(),
-		dbCache         = arg.dbcache || "*_ps",
+		dbCache         = arg.dbcache || "",
 
-		// Has arguments specified connection? Параметры подключения объявлены в аргументах?
+		// Параметры подключения объявлены в аргументах?
 		hasArgSpCn = arg.query || arg.dbsrc || arg.dbname || arg.dbmethod,
 
 		rapidDBreq, dbReq;
 
 	// автоматическая балансировка запросов
 	dbsrc = dbworker + dbsrc;
+
+	// Для удобства журналирования "arg.dbcache" иногда записывается как json
+	if (typeof dbCache == "object")
+		dbCache = JSON.stringify(dbCache);
+
+	dbCache = dbCache.padStart(4, "*___");
 
 	if (!this.awwsCacheEnable) dbCache = "";
 
@@ -262,7 +266,7 @@ DBAwwS.prototype.dbquery = function(arg) {
 
 	dbReq = new DBRequest(_prepReqArgs());
 
-	dbReq.reqСount          = 0;
+	dbReq.reqCount          = 0;
 	dbReq.setAutoProp       = 0;
 	dbReq.hasArgSpCn        = hasArgSpCn;
 	dbReq.queries           = queries;
@@ -486,7 +490,7 @@ DBAwwS.prototype._onErrorCallback = function(err, ctx) {
 			return ctx.emit("done", null, ctx, ctx.responseData);
 		}
 
-		if (ctx.reqСount++ >= self.reqFailRepeats) {
+		if (ctx.reqCount++ >= self.reqFailRepeats) {
 			// Число попыток превышено
 
 			if (!ctx.setAutoProp && !ctx.hasArgSpCn) {
@@ -501,7 +505,7 @@ DBAwwS.prototype._onErrorCallback = function(err, ctx) {
 							return ctx.emit("done", ctx.error, ctx, res);
 						}
 
-						ctx.reqСount = 0;
+						ctx.reqCount = 0;
 
 						ctx.setParams(
 							self._prepReqArgs(),
@@ -572,7 +576,7 @@ DBAwwS.prototype._onDoneCallback = function(err, ctx) {
 		logStr = JSON.stringify({
 			err,
 			date,
-			r: ctx.reqСount,
+			r: ctx.reqCount,
 			recs,
 			t,
 			bt: self.logUseBacktrace ? new Error().stack : '',
