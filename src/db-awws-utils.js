@@ -1,6 +1,38 @@
-var awwsBase64  = require("./db-awws-base64.js");
+"use strict";
+
+var awwsBase64  = require("./db-awws-base64.js"),
+	_const = require("./db-awws-const.js");
 
 module.exports = {
+
+	/**
+	 * Привести к строке
+	 *
+	 * @param {String | Object} dbCache
+	 *
+	 * @return {String}
+	 * */
+	"dbCacheToString": function(dbCache) {
+		if (![].concat(dbCache).join(""))
+			dbCache = "";
+
+		if (typeof dbCache == "object") {
+			var dbCachePrefix = "";
+
+			_const.DB_CACHE_PREFIXES.forEach(function(prefix) {
+				if (dbCache[prefix])
+					dbCachePrefix += prefix;
+
+				delete dbCache[prefix];
+			});
+
+			return dbCachePrefix + JSON.stringify(dbCache);
+		}
+
+		return dbCache + "";
+	},
+
+
 	/**
 	 * @param {String} str - ввод строка
 	 * @param {String} ch - символы, которые необходимо срезать
@@ -16,6 +48,7 @@ module.exports = {
 
 		return str.replace(new RegExp(regEx.join("|"), "g"), "");
 	},
+
 
 	/**
 	 * Формирует запрос в формате AwwS (JSON без кавычек)
@@ -46,4 +79,5 @@ module.exports = {
 		if (dbmethod == "GET")
 			return awwsBase64.encode(s);
 	}
+
 };

@@ -237,8 +237,7 @@ DBAwwS.prototype.dbquery = function(arg) {
 	dbsrc = dbworker + dbsrc;
 
 	// Для удобства журналирования "arg.dbcache" иногда записывается как json
-	if (typeof dbCache == "object")
-		dbCache = JSON.stringify(dbCache);
+	dbCache = awwsUtils.dbCacheToString(dbCache);
 
 	dbCache = dbCache.padStart(4, "*___");
 
