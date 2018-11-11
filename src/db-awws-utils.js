@@ -62,13 +62,15 @@ module.exports = {
 	"encodeFields": function(fields, opt) {
 		opt = opt || {};
 
+		var dbmethod = (opt.dbmethod || "GET").toUpperCase();
+
 		var s = Object.keys(fields).map(function(k) {
 			return k + ":\"" + fields[k] + "\"";
 		});
 
 		s = "{" + s.join(",") + "}";
 
-		if ("GET" == opt.dbmethod)
+		if ("GET" == dbmethod)
 			s = awwsBase64.encode(s);
 
 		return s;
@@ -124,6 +126,8 @@ module.exports = {
 		// example:
 		// {Conf:"well", Src:"*main", Cache:"xU3lz", Sql:"UU0...", IDS:"594...", User:"127", Rights:"", Login:""}
 
+		var token = arg.token || {};
+
 		var fields = {
 			"id": 0,
 			"Conf": arg.dbname,
@@ -132,8 +136,8 @@ module.exports = {
 			"Pwd": "",
 			"Cache": awwsBase64.encode(arg.dbcache || ""),
 			"Sql": awwsBase64.encode(arg.query),
-			"IDS": arg.token.IDS || "",
-			"User": arg.token.User || ""
+			"IDS": token.IDS || "",
+			"User": token.User || ""
 		};
 
 		var dbmethod = arg.dbmethod.toUpperCase();

@@ -274,12 +274,15 @@ DBAwwS.prototype.dbquery = function(arg) {
 
 	dbReq = new DBRequest(_prepReqArgs());
 
-	dbReq.token             = this.token;
-	dbReq.reqCount          = 0;
-	dbReq.setAutoProp       = 0;
-	dbReq.hasArgSpCn        = hasArgSpCn;
-	dbReq.queries           = queries;
-	dbReq.query_b           = arg.query_b;
+	dbReq.setParams({
+		"token": this.token,
+		"reqCount": 0,
+		"setAutoProp": 0,
+		"hasArgSpCn": hasArgSpCn,
+		"queries": queries,
+		"query_b": arg.query_b
+	});
+
 	dbReq.on("success", this._onSuccessCallback.bind(this));
 	dbReq.on("error", this._onErrorCallback.bind(this));
 	dbReq.once("done", this._onDoneCallback.bind(this));
@@ -339,7 +342,14 @@ DBAwwS.prototype.dbquery = function(arg) {
 			loginhash: this.loginhash,
 			loginorigin: this.loginorigin,
 			callback: function(err, token) {
-				dbReq.token = token;
+				if (err) {
+					// записать журнал
+					self._onDoneCallback.call(self, err, dbReq);
+
+					return callback(err, self);
+				}
+
+				dbReq.setParams({ "token": token });
 				dbReq.send();
 			}
 		});
@@ -380,7 +390,10 @@ DBAwwS.prototype.auth = function(arg) {
 		"method": "GET",
 		"data": data,
 		"decodeFrom": "windows-1251",
-		callback: function(res) {
+		callback: function(err, res) {
+			if (err)
+				return callback(err);
+
 			var token = eval('(' + res.responseText + ')');
 
 			if (token.Err)
@@ -395,7 +408,7 @@ DBAwwS.prototype.auth = function(arg) {
 
 
 DBAwwS.prototype.validateToken = function(token) {
-	return !(!token || token.date - new Date() > this.tokenMaxAge);
+	return !(!token || Math.abs(token.date - new Date()) > this.tokenMaxAge);
 };
 
 
