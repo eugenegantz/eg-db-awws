@@ -1,6 +1,7 @@
 "use strict";
 
-var modPath         = require("path"),
+var voidFn          = function() {},
+	modPath         = require("path"),
 	modFs           = require("fs"),
 	Ajax            = require("eg-node-ajax"),
 	DBRequest       = require("./db-awws-request.js"),
@@ -26,11 +27,18 @@ var DBAwwS = function(arg) {
 	// через них могут взаимодействовать другие программы
 	// ------------------------
 	this.dbconfigs      = [];
+	this.loginurl       = null;
+	this.loginhash      = null;
+	this.loginorigin    = null;
+	this.login          = null;
+	this.login2         = null;
 	this.dburl          = null;
 	this.dbname         = null;
 	this.dbsrc          = null;
 	this.dblogdir       = null;
 	this.dbworker       = "";
+
+	this.token          = null;
 
 	// ------------------------
 
@@ -41,6 +49,7 @@ var DBAwwS = function(arg) {
 	this.logUseBacktrace        = false;
 	this.reqAfterFailTimeout    = 500;
 	this._reqStorage            = Object.create(null);
+	this.tokenMaxAge            = 1000 * 60 * 60; // 1 час
 
 	// "rapidCache" - возвращает быстрый кэш для одинаковых запросов
 	// в течении настроенного времени
@@ -265,11 +274,15 @@ DBAwwS.prototype.dbquery = function(arg) {
 
 	dbReq = new DBRequest(_prepReqArgs());
 
-	dbReq.reqCount          = 0;
-	dbReq.setAutoProp       = 0;
-	dbReq.hasArgSpCn        = hasArgSpCn;
-	dbReq.queries           = queries;
-	dbReq.query_b           = arg.query_b;
+	dbReq.setParams({
+		"token": this.token,
+		"reqCount": 0,
+		"setAutoProp": 0,
+		"hasArgSpCn": hasArgSpCn,
+		"queries": queries,
+		"query_b": arg.query_b
+	});
+
 	dbReq.on("success", this._onSuccessCallback.bind(this));
 	dbReq.on("error", this._onErrorCallback.bind(this));
 	dbReq.once("done", this._onDoneCallback.bind(this));
@@ -316,9 +329,86 @@ DBAwwS.prototype.dbquery = function(arg) {
 		isSelectQuery && (this._addRapidCacheReq(dbReq));
 	}
 
-	dbReq.send();
+	// Если авторизован - произвести запрос
+	if (this.validateToken(this.token)) {
+		dbReq.token = this.token;
+		dbReq.send();
+
+	} else {
+		// Иначе - авторизироваться в БД
+		this.auth({
+			login: this.login,
+			login2: this.login2,
+			loginhash: this.loginhash,
+			loginorigin: this.loginorigin,
+			callback: function(err, token) {
+				if (err) {
+					// записать журнал
+					self._onDoneCallback.call(self, err, dbReq);
+
+					return callback(err, self);
+				}
+
+				dbReq.setParams({ "token": token });
+				dbReq.send();
+			}
+		});
+	}
 
 	return this;
+};
+
+
+/**
+ * Авторизировать пользователя в БД. Вернуть токен
+ *
+ * @param {Object} arg
+ * @param {Function=} arg.callback
+ * @param {String} arg.login
+ * @param {String} arg.login2
+ * @param {String} arg.loginhash
+ * @param {String} arg.loginorigin
+ * */
+DBAwwS.prototype.auth = function(arg) {
+	arg = arg || {};
+
+	var self        = this,
+	    now         = new Date(),
+	    callback    = arg.callback || voidFn;
+
+	var data = awwsUtils.encodeLogin({
+		"dbname": this.dbname,
+		"login": arg.login,
+		"login2": arg.login2,
+		"loginhash": arg.loginhash,
+		"loginorigin": arg.loginorigin,
+		"tm": now.getHours() + ":" + now.getMinutes()
+	});
+
+	Ajax.request({
+		"url": this.loginurl,
+		"method": "GET",
+		"data": data,
+		"decodeFrom": "windows-1251",
+		callback: function(err, res) {
+			if (err)
+				return callback(err);
+
+			var token = eval('(' + res.responseText + ')');
+
+			if (token.Err)
+				return callback(token.Err);
+
+			token.date = new Date();
+
+			callback(null, self.token = token);
+		}
+	});
+};
+
+
+DBAwwS.prototype.validateToken = function(token) {
+	return !(!token || Math.abs(token.date - new Date()) > this.tokenMaxAge);
 };
 
 
