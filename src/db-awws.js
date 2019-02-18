@@ -407,8 +407,36 @@ DBAwwS.prototype.auth = function(arg) {
 };
 
 
+/**
+ * Проверить актуальность токена
+ *
+ * @param {Object} token
+ *
+ * @return {Boolean}
+ * */
 DBAwwS.prototype.validateToken = function(token) {
-	return !(!token || Math.abs(token.date - new Date()) > this.tokenMaxAge);
+	// Сервер фабулы принудительно инвалидирует токены в полночь
+	// Время инвалидации на сервере
+	var zeroDate = new Date;
+
+	// Установить время на полночь
+	// Установить время на минуту позже полуночи,
+	// на случай если фабула инвалидирует токен не ровно в полночь
+	zeroDate.setHours(0);
+	zeroDate.setMinutes(1);
+	zeroDate.setSeconds(0);
+	zeroDate.setMilliseconds(0);
+
+	// Если токена нет
+	if (!token || typeof token != 'object')
+		return false;
+
+	// Если токен получен до полуночи - считать токен устаревшим
+	if (token.date - zeroDate <= 0)
+		return false;
+
+	// Если срок токена не истек
+	return Math.abs(token.date - new Date()) < this.tokenMaxAge;
 };
 
 
