@@ -128,6 +128,8 @@ module.exports = {
 
 		var token = arg.token || {};
 
+		var props = arg.props || {};
+
 		var fields = {
 			"id": 0,
 			"Conf": arg.dbname,
@@ -141,6 +143,8 @@ module.exports = {
 		};
 
 		var dbmethod = arg.dbmethod.toUpperCase();
+
+		Object.assign(fields, props);
 
 		return this.encodeFields(fields, { dbmethod: dbmethod });
 	}

@@ -1,6 +1,7 @@
 "use strict";
 
 var EventEmitter    = require("events"),
+	DBAwwsErrors    = require('./db-awws-errors.js'),
 	modUtil         = require("util"),
 	Ajax            = require("eg-node-ajax"),
 	awwsUtils       = require("./db-awws-utils.js"),
@@ -102,13 +103,15 @@ DBAwwsReq.prototype.send = function(arg) {
 
 
 DBAwwsReq.prototype._onAjaxAResponse = function(httpErr, httpRes) {
-	var error = "",
-		dbres = {
-			"err":  "",
-			"recs": 0,
-			"res":  [],
-			"fld":  []
-		};
+	var error,
+	    errors = new DBAwwsErrors();
+
+	var dbres = {
+		"err":  "",
+		"recs": 0,
+		"res":  [],
+		"fld":  []
+	};
 
 	// Ошибка Ajax
 	if (httpRes.error) {
@@ -146,28 +149,40 @@ DBAwwsReq.prototype._onAjaxAResponse = function(httpErr, httpRes) {
 	// Вернулся массив?
 	// На случай пакетного запроса
 	if (!Array.isArray(dbres)) {
-		error = dbres.err;
+		if (dbres.err) {
+			error           = new Error(dbres.err);
+			error.index     = 0;
+			error.query     = this.queries[0];
+
+			errors.push(error);
+		}
 
 	} else {
-		for (let c = 0; c < dbres.length; c++) {
-			if (dbres[c].err)
-				error += awwsUtils.trim(dbres[c].err, " ;") + '(' + (c + 1) + '); ';
+		for (var c = 0; c < dbres.length; c++) {
+			if (dbres[c].err) {
+				error           = new Error(dbres[c].err);
+				error.index     = c;
+				error.query     = this.queries[c];
+
+				errors.push(error);
+			}
 		}
 	}
 
 	// self - экземпляр DBRequest
-	this.dbError = error || null;
+	this.dbError = !errors.length ? null : errors;
 
-	!this.dbError && (this.responseData = dbres);
+	// !this.dbError && (this.responseData = dbres);
+	this.responseData = dbres;
 
 	// Выполнять в случае ошибки
-	this.dbError && this.emit("error", this.dbError, this);
+	this.dbError && this.emit("error", this.dbError + '', this);
 
 	// Выполнять в случае удачного ответа
 	!this.dbError && this.emit("success", this, dbres);
 
 	// Выполнять всегда
-	this.emit("complete", this.dbError, this, dbres);
+	this.emit("complete", this.dbError + '', this, dbres);
 
 	this.state = this.STATE_DONE;
 };

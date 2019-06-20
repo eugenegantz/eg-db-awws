@@ -162,7 +162,7 @@ DBAwwS.prototype.hasOnlySelectQuery = function(query) {
 	if (!Array.isArray(query))
 		throw new Error (`query supposed to be "String" or "Array". "${typeof query}" given`);
 
-	for (let c = 0; c < query.length; c++) {
+	for (var c = 0; c < query.length; c++) {
 		if (query[c].trim().match(/^select/i)) continue;
 
 		return false;
@@ -275,6 +275,7 @@ DBAwwS.prototype.dbquery = function(arg) {
 	dbReq = new DBRequest(_prepReqArgs());
 
 	dbReq.setParams({
+		"props": arg.props,
 		"token": this.token,
 		"reqCount": 0,
 		"setAutoProp": 0,
@@ -669,10 +670,97 @@ DBAwwS.prototype._onErrorCallback = function(err, ctx) {
 		return;
 	}
 
+	// Запрос вернул db ошибку. Ошибка на стороне БД
 	if (ctx.dbError) {
-		// Запрос вернул db ошибку. Ошибка на стороне БД
-		self.emit("dbResponseError");
-		return ctx.emit("done", err, ctx, res);
+		var requestsToRepeat = {};
+
+		var _onDone = function() {
+			if (Object.keys(requestsToRepeat).length)
+				return;
+
+			err = (ctx.dbError + '') || null;
+
+			if (!err)
+				res = ctx.responseData;
+
+			self.emit("dbResponseError");
+			ctx.emit("done", err, ctx, res);
+		};
+
+		ctx.dbError.forEach(dbErr => {
+			let shouldRepeat = 0;
+
+			let dbErrStr = dbErr + '';
+
+			if (/установлена\sблокировка/ig.test(dbErrStr))
+				shouldRepeat = 1;
+
+			if (/блокировка\sустановлена\sпользователем/ig.test(dbErrStr))
+				shouldRepeat = 1;
+
+			if (/Недопустимая\sзакладка/ig.test(dbErrStr))
+				shouldRepeat = 1;
+
+			if (!shouldRepeat)
+				return;
+
+			var index = dbErr.index,
+				query = dbErr.query;
+
+			var dbReqRepeat = new DBRequest({
+				"dburl"     : ctx.dburl,
+				"dbsrc"     : ctx.dbsrc,
+				"dbname"    : ctx.dbname,
+				"dbmethod"  : ctx.dbmethod,
+				"dbcache"   : ctx.dbcache,
+				"query"     : query
+			});
+
+			requestsToRepeat[index] = dbReqRepeat;
+
+			// Задерждка 1 сек
+			// Чтобы позволить базе разблокировать таблицу
+			setTimeout(function() {
+				var _onComplete = function() {
+					delete requestsToRepeat[index];
+
+					_onDone();
+				};
+
+				// Закрыть просроченные запросы
+				setTimeout(function() {
+					// _onComplete();
+				}, 15000);
+
+				dbReqRepeat.send({
+					"onSuccess": function(dbReq, dbRes) {
+						if (!requestsToRepeat[index])
+							return;
+
+						// Чтобы отразить в журнале
+						dbRes.isFailOverReq = 1;
+
+						Array.isArray(ctx.responseData)
+							? ctx.responseData[index] = dbRes
+							: ctx.responseData = dbRes;
+
+						delete ctx.dbError[index];
+
+						_onComplete();
+					},
+					"onError": function(dbReq, _err) {
+						if (!requestsToRepeat[index])
+							return;
+
+						ctx.dbError[index] = _err;
+
+						_onComplete();
+					}
+				});
+			}, 1000);
+		});
+
+		_onDone();
 	}
 };
 
@@ -685,25 +773,40 @@ DBAwwS.prototype._onErrorCallback = function(err, ctx) {
 DBAwwS.prototype._onDoneCallback = function(err, ctx) {
 	// self - экземпляр DBAwwS;
 
-	var self = this,
-		resData = [].concat(ctx.responseData),
-		t = resData.map(res => (res || '') && res.t).join(', '),
-		recs = resData.map(res => (res || '') && res.recs).join(', '),
-		date = new Date(),
-		logStr = JSON.stringify({
-			err,
-			date,
-			r: ctx.reqCount,
-			recs,
-			t,
-			bt: self.logUseBacktrace ? new Error().stack : '',
-			dburl: ctx.dburl,
-			dbsrc: ctx.dbsrc,
-			dbname: ctx.dbname,
-			dbcache: ctx.dbcache || "",
-			dbmethod: ctx.dbmethod,
-			query: ctx.query
-		});
+	var self                = this,
+	    resData             = [].concat(ctx.responseData),
+	    failOverReqIdx      = [],
+	    t                   = [],
+	    recs                = [],
+	    date                = new Date();
+
+	resData.forEach((res, idx) => {
+		if (!res)
+			return;
+
+		if (res.isFailOverReq)
+			failOverReqIdx.push(idx);
+
+		recs.push(res.recs);
+
+		t.push(res.t);
+	});
+
+	var logStr = JSON.stringify({
+		"err"               : err,
+		"date"              : date,
+		"r"                 : ctx.reqCount,
+		"recs"              : recs.join(", "),
+		"t"                 : t.join(", "),
+		"failOverReqIdx"    : failOverReqIdx.join(", "),
+		"bt"                : self.logUseBacktrace ? new Error().stack : '',
+		"dburl"             : ctx.dburl,
+		"dbsrc"             : ctx.dbsrc,
+		"dbname"            : ctx.dbname,
+		"dbcache"           : ctx.dbcache || "",
+		"dbmethod"          : ctx.dbmethod,
+		"query"             : ctx.query
+	});
 
 	err && self.errors.push(err);
 
