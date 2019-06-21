@@ -162,7 +162,7 @@ DBAwwS.prototype.hasOnlySelectQuery = function(query) {
 	if (!Array.isArray(query))
 		throw new Error (`query supposed to be "String" or "Array". "${typeof query}" given`);
 
-	for (let c = 0; c < query.length; c++) {
+	for (var c = 0; c < query.length; c++) {
 		if (query[c].trim().match(/^select/i)) continue;
 
 		return false;
@@ -669,10 +669,90 @@ DBAwwS.prototype._onErrorCallback = function(err, ctx) {
 		return;
 	}
 
+	// Запрос вернул db ошибку. Ошибка на стороне БД
 	if (ctx.dbError) {
-		// Запрос вернул db ошибку. Ошибка на стороне БД
-		self.emit("dbResponseError");
-		return ctx.emit("done", err, ctx, res);
+		var requestsToRepeat = {};
+
+		var _onDone = function() {
+			if (Object.keys(requestsToRepeat).length)
+				return;
+
+			err = (ctx.dbError + '') || null;
+
+			self.emit("dbResponseError");
+			ctx.emit("done", err, ctx, res);
+		};
+
+		ctx.dbError.forEach(dbErr => {
+			var shouldRepeat = 0;
+
+			dbErr += '';
+
+			if (/установлена\sблокировка/ig.test(dbErr))
+				shouldRepeat = 1;
+
+			if (/блокировка\sустановлена\sпользователем/ig.test(dbErr))
+				shouldRepeat = 1;
+
+			if (/Недопустимая\sзакладка/ig.test(dbErr))
+				shouldRepeat = 1;
+
+			if (!shouldRepeat)
+				return;
+
+			var index = dbErr.index,
+				query = dbErr.query;
+
+			var dbReqRepeat = new DBRequest({
+				"dburl":    ctx.dburl,
+				"dbsrc":    ctx.dbsrc,
+				"dbname":   ctx.dbname,
+				"dbmethod": ctx.dbmethod,
+				"query":    query
+			});
+
+			requestsToRepeat[index] = dbReqRepeat;
+
+			// Задерждка 1 сек
+			// Чтобы позволить базе разблокировать таблицу
+			setTimeout(function() {
+				var _onComplete = function() {
+					delete requestsToRepeat[index];
+
+					_onDone();
+				};
+
+				// Закрыть просроченные запросы
+				setTimeout(function() {
+					_onComplete();
+				}, 15000);
+
+				dbReqRepeat.send({
+					"onSuccess": function(dbReq, dbRes) {
+						if (!requestsToRepeat[index])
+							return;
+
+						Array.isArray(ctx.responseData)
+							? ctx.responseData[index] = dbRes
+							: ctx.responseData = dbRes;
+
+						delete ctx.dbError[index];
+
+						_onComplete();
+					},
+					"onError": function(dbReq, _err) {
+						if (!requestsToRepeat[index])
+							return;
+
+						ctx.dbError[index] = _err;
+
+						_onComplete();
+					}
+				});
+			}, 1000);
+		});
+
+		_onDone();
 	}
 };
 

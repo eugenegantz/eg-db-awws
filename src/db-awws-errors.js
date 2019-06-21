@@ -9,15 +9,17 @@ var DBAwwsErrors = function() {
 
 
 Object.getOwnPropertyNames(Array.prototype).forEach(function(key) {
-	DBAwwsErrors.prototype = Array.prototype[key];
+	DBAwwsErrors.prototype[key] = Array.prototype[key];
 });
 
 
 DBAwwsErrors.prototype.toString = function() {
-	var str = "";
+	var c, str = "";
 
-	for (var c = 0; c < this.length; c++)
-		str += awwsUtils.trim(this[c] + "", " ;") + "(" + c + "); ";
+	for (c = 0; c < this.length; c++) {
+		if (this[c])
+			str += awwsUtils.trim(this[c] + "", " ;") + "(" + c + "); ";
+	}
 
 	return str;
 };

@@ -8,11 +8,7 @@ var assert      = require("assert"),
 	Va          = require("./../src/db-awws-arg-validator.js"),
 	utils       = require("./../src/db-awws-utils.js"),
 	modBase64   = require("./../src/db-awws-base64.js"),
-	connectionOptions = {
-		"dburl": "http://127.0.0.1:9000/db?",
-		"dbname": "well.demo",
-		"dbsrc": "main"
-	};
+	connectionOptions = require("./db-config-awws.ignore.js").dbconfigs[0];
 
 describe("awws.base64", () => {
 	var b64,
@@ -72,14 +68,7 @@ describe("._utils", () => {
 		it("GET", () => {
 			var encoded = u.encodeQuery(arg);
 
-			assert.equal(
-					"Oe2lkOjAsQ29uZjoiZGJuYW1lIix" +
-					"TcmM6ImRic3JjIixMb2dpbjoiIix" +
-					"Qd2Q6IiIsQ2FjaGU6IiIsU3FsOiJ" +
-					"SVTBWTVJVTlVJRTVQVnlncE93PT0" +
-					"ifQ==",
-					encoded
-			);
+			assert.equal(encoded, "Oe2lkOiIwIixDb25mOiJkYm5hbWUiLFNyYzoiZGJzcmMiLExvZ2luOiIiLFB3ZDoiIixDYWNoZToiIixTcWw6IlJVMFZNUlVOVUlFNVBWeWdwT3c9PSIsSURTOiIiLFVzZXI6IiJ9");
 		});
 
 		it("POST", () => {
@@ -87,17 +76,19 @@ describe("._utils", () => {
 
 			var encoded = u.encodeQuery(arg);
 
-			assert.equal(
-					'{' +
-					'id:0,' +
-					'Conf:"dbname",' +
-					'Src:"dbsrc",' +
-					'Login:"",' +
-					'Pwd:"",' +
-					'Cache:"",' +
-					'Sql:"RU0VMRUNUIE5PVygpOw=="' +
-					'}',
-					encoded
+			assert.equal(''
+				+ '{'
+				+   'id:"0",'
+				+   'Conf:"dbname",'
+				+   'Src:"dbsrc",'
+				+   'Login:"",'
+				+   'Pwd:"",'
+				+   'Cache:"",'
+				+   'Sql:"RU0VMRUNUIE5PVygpOw==",'
+				+   'IDS:"",'
+				+   'User:""'
+				+ '}',
+				encoded
 			);
 		})
 	});
@@ -823,7 +814,7 @@ describe("eg-db-awws", () => {
 		});
 	});
 
-	describe("Контрольный запрос", () => {
+	describe("Обрыв связи. Контрольный запрос", () => {
 		var db, err, ctx, dbres, dbReq, stackTrace;
 
 		before(function(done) {
@@ -1133,6 +1124,56 @@ describe("eg-db-awws", () => {
 			// TODO
 			assert.ok(false, "TODO");
 		});
+	});
+
+	describe("Таблица заблокирована. Повтор запроса", () => {
+
+		describe("Заблокировать таблицу в БД. UPDATE x100", () => {
+
+			var sql = (() => {
+				var c = 0,
+					prop = "test_x100_update_prop",
+					sql = "";
+
+				for (c = 0; c < 100; c++)
+					sql += "UPDATE Property SET [value] = '" + c + "' WHERE property = '" + prop + "';\n";
+
+				return sql;
+			})();
+
+			before(function(done) {
+				this.timeout(5000);
+
+				var dc = 0,
+					d = () => { ++dc == 5 && done(); };
+
+				resetRapidCache();
+				db.rapidCache.onHttpResponseEmpty = true;
+
+				// Первый запрос, кешируется
+				for (c = 0; c < repeats; c++) {
+					db.dbquery({
+						"query": sql,
+						"callback": function(...args_) {
+							if (args_[0]) err = args_[0];
+							responses.add(args_[2]);
+
+							Object.keys(db._reqStorage).forEach((a) => {
+								maxCacheLen = db._reqStorage[a].size;
+							});
+
+							d();
+						}
+					});
+				}
+			});
+
+			it("Запрос должен вернуть ошибку", () => {
+
+			})
+
+		})
+
 	});
 
 	describe("events", () => {

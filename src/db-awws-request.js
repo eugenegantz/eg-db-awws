@@ -152,14 +152,21 @@ DBAwwsReq.prototype._onAjaxAResponse = function(httpErr, httpRes) {
 		if (dbres.err) {
 			error           = new Error(dbres.err);
 			error.index     = 0;
+			error.query     = this.queries[0];
 
 			errors.push(error);
 		}
 
 	} else {
-		for (var c = 0; c < dbres.length; c++)
-			if (dbres[c].err)
-				errors.push(dbres[c].err);
+		for (var c = 0; c < dbres.length; c++) {
+			if (dbres[c].err) {
+				error           = new Error(dbres[c].err);
+				error.index     = c;
+				error.query     = this.queries[c];
+
+				errors.push(error);
+			}
+		}
 	}
 
 	// self - экземпляр DBRequest
@@ -168,13 +175,13 @@ DBAwwsReq.prototype._onAjaxAResponse = function(httpErr, httpRes) {
 	!this.dbError && (this.responseData = dbres);
 
 	// Выполнять в случае ошибки
-	this.dbError && this.emit("error", this.dbError, this);
+	this.dbError && this.emit("error", this.dbError + '', this);
 
 	// Выполнять в случае удачного ответа
 	!this.dbError && this.emit("success", this, dbres);
 
 	// Выполнять всегда
-	this.emit("complete", this.dbError, this, dbres);
+	this.emit("complete", this.dbError + '', this, dbres);
 
 	this.state = this.STATE_DONE;
 };
