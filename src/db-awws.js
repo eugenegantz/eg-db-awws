@@ -704,11 +704,12 @@ DBAwwS.prototype._onErrorCallback = function(err, ctx) {
 				query = dbErr.query;
 
 			var dbReqRepeat = new DBRequest({
-				"dburl":    ctx.dburl,
-				"dbsrc":    ctx.dbsrc,
-				"dbname":   ctx.dbname,
-				"dbmethod": ctx.dbmethod,
-				"query":    query
+				"dburl"     : ctx.dburl,
+				"dbsrc"     : ctx.dbsrc,
+				"dbname"    : ctx.dbname,
+				"dbmethod"  : ctx.dbmethod,
+				"dbcache"   : ctx.dbcache,
+				"query"     : query
 			});
 
 			requestsToRepeat[index] = dbReqRepeat;

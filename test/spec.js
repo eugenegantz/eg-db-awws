@@ -8,7 +8,89 @@ var assert      = require("assert"),
 	Va          = require("./../src/db-awws-arg-validator.js"),
 	utils       = require("./../src/db-awws-utils.js"),
 	modBase64   = require("./../src/db-awws-base64.js"),
-	connectionOptions = require("./db-config-awws.ignore.js").dbconfigs[0];
+	config      = require("./db-config-awws.ignore.js"),
+    iconv       = require('iconv-lite'),
+	connectionOptions = config.dbconfigs[0];
+
+
+
+(() => {
+	const
+		port = config.test.server.port,
+		http = require('http');
+
+	let _test = {
+		failover: {
+			req: {
+
+			},
+		},
+	};
+
+	let server = new http.Server(function(req, res) {
+		// API сервера будет принимать только POST-запросы и только JSON, так что записываем
+		// всю нашу полученную информацию в переменную jsonString
+		let  jsonString = '';
+
+		res.setHeader('Content-Type', 'application/json');
+
+		req.on('data', (data) => { // Пришла информация - записали.
+			jsonString += data;
+		});
+
+		req.on('end', () => {// Информации больше нет - передаём её дальше.
+			let obj = eval(`(${jsonString})`);
+			let cache = modBase64.decode(obj.Cache);
+
+			// SELECT TOP 1 mmid, doc1, gsDate, gs FROM Movement
+
+			if (/failover_test_0001/ig.test(cache)) {
+				let resJson, resBuffer;
+
+				console.log(cache, jsonString);
+
+				if (_test.failover.req[cache]) {
+					resJson = JSON.stringify({
+						"err":"",
+						"t":0,
+						"recs":1,
+						"fld":[
+							{"Name":"mmid","Size":4,"Type":"N","fType":3},
+							{"Name":"doc1","Size":10,"Type":"C","fType":202},
+							{"Name":"gsDate","Size":8,"Type":"D","fType":7},
+							{"Name":"gs","Size":8,"Type":"C","fType":202}
+						],
+						"res":[[748738,"Fi9ру00124","26.06.19 14:00:00","ГППО13Е1"]]
+					});
+
+					resBuffer = iconv.encode(resJson, 'win1251');
+
+					res.end(resBuffer);
+
+					return;
+				}
+
+				_test.failover.req[cache] = 1;
+
+				resJson = JSON.stringify({
+					"err":"Error Exec: Обновление невозможно; блокировка установлена пользователем 'Fabula' на машине 'FABULA'.",
+					"t":0,
+					"recs":0,
+					"fld":[],
+					"res":[]
+				});
+
+				resBuffer = iconv.encode(resJson, 'win1251');
+
+				res.end(resBuffer);
+			}
+		});
+	});
+
+	server.listen(port);
+})();
+
+
 
 describe("awws.base64", () => {
 	var b64,
@@ -1129,49 +1211,44 @@ describe("eg-db-awws", () => {
 	describe("Таблица заблокирована. Повтор запроса", () => {
 
 		describe("Заблокировать таблицу в БД. UPDATE x100", () => {
+			var db, propsBackup = {};
 
-			var sql = (() => {
-				var c = 0,
-					prop = "test_x100_update_prop",
-					sql = "";
+			before(() => {
+				db = modDBAwws.prototype.getInstance(connectionOptions);
 
-				for (c = 0; c < 100; c++)
-					sql += "UPDATE Property SET [value] = '" + c + "' WHERE property = '" + prop + "';\n";
-
-				return sql;
-			})();
-
-			before(function(done) {
-				this.timeout(5000);
-
-				var dc = 0,
-					d = () => { ++dc == 5 && done(); };
-
-				resetRapidCache();
-				db.rapidCache.onHttpResponseEmpty = true;
-
-				// Первый запрос, кешируется
-				for (c = 0; c < repeats; c++) {
-					db.dbquery({
-						"query": sql,
-						"callback": function(...args_) {
-							if (args_[0]) err = args_[0];
-							responses.add(args_[2]);
-
-							Object.keys(db._reqStorage).forEach((a) => {
-								maxCacheLen = db._reqStorage[a].size;
-							});
-
-							d();
-						}
-					});
-				}
+				propsBackup.dburl = db.dburl;
+				propsBackup.dbsrc = db.dbsrc;
+				propsBackup.dbname = db.dbname;
 			});
 
-			it("Запрос должен вернуть ошибку", () => {
+			afterEach(() => {
+				Object.assign(db, propsBackup);
+			});
 
-			})
+			it("Запрос должен вернуть ошибку", function(done) {
+				this.timeout(5000);
 
+				let query = 'SELECT TOP 1 mmid, doc1, gsDate, gs FROM Movement';
+				let dbcache = 'failover_test_0001';
+
+				db.dburl = 'http://127.0.0.1:' + config.test.server.port;
+
+				db.dbquery({
+					query,
+					dbcache,
+					callback(err, self, dbres) {
+						console.log(dbres);
+
+						if (dbres.err)
+							throw new Error(dbres.err);
+
+						if (!dbres.res.length)
+							throw new Error('!dbres.res.length');
+
+						done();
+					}
+				});
+			});
 		})
 
 	});
