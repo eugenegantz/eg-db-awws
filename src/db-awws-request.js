@@ -172,7 +172,8 @@ DBAwwsReq.prototype._onAjaxAResponse = function(httpErr, httpRes) {
 	// self - экземпляр DBRequest
 	this.dbError = !errors.length ? null : errors;
 
-	!this.dbError && (this.responseData = dbres);
+	// !this.dbError && (this.responseData = dbres);
+	this.responseData = dbres;
 
 	// Выполнять в случае ошибки
 	this.dbError && this.emit("error", this.dbError + '', this);

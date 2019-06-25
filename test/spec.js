@@ -5,6 +5,7 @@ var assert      = require("assert"),
 	modUtil     = require("util"),
 	modDBAwws   = require("./../src/db-awws.js"),
 	modDBReq    = require("./../src/db-awws-request.js"),
+	modNodeAjax = require('eg-node-ajax'),
 	Va          = require("./../src/db-awws-arg-validator.js"),
 	utils       = require("./../src/db-awws-utils.js"),
 	modBase64   = require("./../src/db-awws-base64.js"),
@@ -19,71 +20,79 @@ var assert      = require("assert"),
 		port = config.test.server.port,
 		http = require('http');
 
-	let _test = {
+	let _testAttempts = {
 		failover: {
-			req: {
-
-			},
+			req: {},
 		},
 	};
 
+	let db;
+
 	let server = new http.Server(function(req, res) {
-		// API сервера будет принимать только POST-запросы и только JSON, так что записываем
-		// всю нашу полученную информацию в переменную jsonString
-		let  jsonString = '';
+		db = db || new modDBAwws(connectionOptions);
 
-		res.setHeader('Content-Type', 'application/json');
+		db._debugIgnore = 1;
+		db.rapidCache = false;
 
-		req.on('data', (data) => { // Пришла информация - записали.
-			jsonString += data;
+		let  reqStr = "";
+
+		res.setHeader("Content-Type", "application/json");
+
+		req.on("data", (data) => { // Пришла информация - записали.
+			reqStr += data;
 		});
 
-		req.on('end', () => {// Информации больше нет - передаём её дальше.
-			let obj = eval(`(${jsonString})`);
-			let cache = modBase64.decode(obj.Cache);
+		req.on("end", () => {// Информации больше нет - передаём её дальше.
+			let obj         = eval(`(${reqStr})`),
+			    query       = modBase64.decode(obj.Sql),
+			    dbcache     = modBase64.decode(obj.Cache);
 
-			// SELECT TOP 1 mmid, doc1, gsDate, gs FROM Movement
+			db.dbquery({
+				query,
+				dbcache,
+				callback(_err, self, dbRes) {
+					// Error Exec: Обновление невозможно; блокировка установлена пользователем 'Fabula' на машине 'FABULA'.(1);
+					// Error Exec: Обновление невозможно; установлена блокировка.
+					// Error: Недопустимая закладка.(2);
 
-			if (/failover_test_0001/ig.test(cache)) {
-				let resJson, resBuffer;
+					if (/failover-test/ig.test(dbcache) && !_testAttempts[dbcache]) {
+						_testAttempts[dbcache] = 1;
 
-				console.log(cache, jsonString);
+						let err = "";
 
-				if (_test.failover.req[cache]) {
-					resJson = JSON.stringify({
-						"err":"",
-						"t":0,
-						"recs":1,
-						"fld":[
-							{"Name":"mmid","Size":4,"Type":"N","fType":3},
-							{"Name":"doc1","Size":10,"Type":"C","fType":202},
-							{"Name":"gsDate","Size":8,"Type":"D","fType":7},
-							{"Name":"gs","Size":8,"Type":"C","fType":202}
-						],
-						"res":[[748738,"Fi9ру00124","26.06.19 14:00:00","ГППО13Е1"]]
-					});
+						if (/_err_tab/ig.test(dbcache))
+							err = "Error: Недопустимая закладка.";
 
-					resBuffer = iconv.encode(resJson, 'win1251');
+						if (/_err_block/ig.test(dbcache))
+							err = "Error Exec: Обновление невозможно; установлена блокировка.";
 
-					res.end(resBuffer);
+						if (/_err_user-block/ig.test(dbcache))
+							err = "Error Exec: Обновление невозможно; блокировка установлена пользователем 'Fabula' на машине 'FABULA'.";
 
-					return;
+						if (/_err_unknown/ig.test(dbcache))
+							err = "Error Exec: Неизвестная ошибка";
+
+						let errorResponseTemplate = {
+							"err": err,
+							"t":0,
+							"recs":0,
+							"fld":[],
+							"res":[]
+						};
+
+						console.log('synthetic-error');
+
+						Array.isArray(dbRes)
+							? dbRes[0] = errorResponseTemplate
+							: dbRes = errorResponseTemplate;
+					}
+
+					let str = JSON.stringify(dbRes),
+					    buf = iconv.encode(str, "win1251");
+
+					res.end(buf);
 				}
-
-				_test.failover.req[cache] = 1;
-
-				resJson = JSON.stringify({
-					"err":"Error Exec: Обновление невозможно; блокировка установлена пользователем 'Fabula' на машине 'FABULA'.",
-					"t":0,
-					"recs":0,
-					"fld":[],
-					"res":[]
-				});
-
-				resBuffer = iconv.encode(resJson, 'win1251');
-
-				res.end(resBuffer);
-			}
+			});
 		});
 	});
 
@@ -1114,7 +1123,9 @@ describe("eg-db-awws", () => {
 		describe("Проверка кеширования", () => {
 			var sql = "SELECT 1+1 AS two";
 
-			it("После двух запросов, где один возвращает кэш, остается только один закешированный объект", (done) => {
+			it("После двух запросов, где один возвращает кэш, остается только один закешированный объект", function(done) {
+				this.timeout(5000);
+
 				db.rapidCache.onHasCache = true;
 				db._reqStorage = {};
 
@@ -1210,7 +1221,128 @@ describe("eg-db-awws", () => {
 
 	describe("Таблица заблокирована. Повтор запроса", () => {
 
-		describe("Заблокировать таблицу в БД. UPDATE x100", () => {
+		[
+			"failover-test_err_block",
+			// "failover-test_err_user-block",
+			// "failover-test_err_tab"
+		].forEach((dbcache, idx) => {
+
+			dbcache = dbcache + "_" + idx;
+
+			describe("Одиночный запрос. " + dbcache, () => {
+				var db, propsBackup = {};
+
+				before(() => {
+					db = modDBAwws.prototype.getInstance(connectionOptions);
+
+					propsBackup.rapidCache = db.rapidCache;
+					propsBackup.dburl = db.dburl;
+					propsBackup.dbsrc = db.dbsrc;
+					propsBackup.dbname = db.dbname;
+
+
+				});
+
+				afterEach(() => {
+					Object.assign(db, propsBackup);
+				});
+
+				it("Библиотека повторила запрос. Ответ без ошибок", function() {
+					this.timeout(5000);
+
+					var query = 'SELECT TOP 1 mmid, doc1, gsDate, gs FROM Movement';
+
+					db.dburl = 'http://127.0.0.1:' + config.test.server.port;
+					db.rapidCache = false;
+
+					return (
+						new Promise((resolve, reject) => {
+							db.dbquery({
+								query,
+								dbcache,
+								callback(err, dbReq, dbres) {
+									if (dbres.err)
+										return reject(dbres.err);
+
+									if (!dbres.isFailOverReq)
+										return reject("!dbres.isFailOverReq");
+
+									if (!dbres.res.length)
+										return reject('!dbres.res.length');
+
+									resolve();
+								}
+							});
+						})
+					);
+				});
+			});
+
+			describe("Пакетный запрос. Длина пакета = 3. Для первого запроса в пакете БД вернула ошибку. " + dbcache, () => {
+				var db, propsBackup = {};
+
+				before(() => {
+					db = modDBAwws.prototype.getInstance(connectionOptions);
+
+					propsBackup.dburl = db.dburl;
+					propsBackup.dbsrc = db.dbsrc;
+					propsBackup.dbname = db.dbname;
+				});
+
+				afterEach(() => {
+					Object.assign(db, propsBackup);
+				});
+
+				it("Библиотека повторила запрос. Ответ без ошибок", function() {
+					this.timeout(5000);
+
+					let query = ''
+						+ '  SELECT TOP 1 mmid, doc1, gsDate, gs FROM Movement'
+						+ '; SELECT TOP 1 mmid, doc1, gsDate, gs FROM Movement'
+						+ '; SELECT TOP 1 mmid, doc1, gsDate, gs FROM Movement';
+
+					db.dburl = 'http://127.0.0.1:' + config.test.server.port;
+					db.rapidCache = false;
+
+					return (
+						new Promise((resolve, reject) => {
+							db.dbquery({
+								query,
+								dbcache,
+								callback(err, ctx, dbres) {
+									if (dbres.err)
+										return reject(dbres.err);
+
+									if (!Array.isArray(dbres))
+										return reject('!Array.isArray(dbres)');
+
+									if (!dbres[0].isFailOverReq)
+										return reject("!dbres[0].isFailOverReq");
+
+									err = dbres.reduce((arr, dbres) => {
+										if (dbres.err)
+											arr.push(dbres.err);
+
+										return arr;
+									}, []);
+
+									if (err.length)
+										return reject(err.join(';'));
+
+									resolve();
+								}
+							});
+						})
+					);
+				});
+			});
+
+		});
+
+		describe(""
+			+ "Пакетный запрос. Длина пакета = 3."
+			+ " Для первого запроса в пакете БД вернула ошибку."
+			+ " Ошибка для которой не предусмотрен повтор запроса", () => {
 			var db, propsBackup = {};
 
 			before(() => {
@@ -1225,11 +1357,15 @@ describe("eg-db-awws", () => {
 				Object.assign(db, propsBackup);
 			});
 
-			it("Запрос должен вернуть ошибку", function(done) {
+			it("Ответ содержит ошибку", function(done) {
 				this.timeout(5000);
 
-				let query = 'SELECT TOP 1 mmid, doc1, gsDate, gs FROM Movement';
-				let dbcache = 'failover_test_0001';
+				let query = ''
+					+ '  SELECT TOP 1 mmid, doc1, gsDate, gs FROM Movement'
+					+ '; SELECT TOP 1 mmid, doc1, gsDate, gs FROM Movement'
+					+ '; SELECT TOP 1 mmid, doc1, gsDate, gs FROM Movement';
+
+				let dbcache = 'failover-test_err_unknown';
 
 				db.dburl = 'http://127.0.0.1:' + config.test.server.port;
 
@@ -1237,19 +1373,14 @@ describe("eg-db-awws", () => {
 					query,
 					dbcache,
 					callback(err, self, dbres) {
-						console.log(dbres);
-
 						if (dbres.err)
-							throw new Error(dbres.err);
+							return done();
 
-						if (!dbres.res.length)
-							throw new Error('!dbres.res.length');
-
-						done();
+						throw new Error('Не удалось поймать ошибку');
 					}
 				});
 			});
-		})
+		});
 
 	});
 

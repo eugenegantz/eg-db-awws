@@ -679,22 +679,25 @@ DBAwwS.prototype._onErrorCallback = function(err, ctx) {
 
 			err = (ctx.dbError + '') || null;
 
+			if (!err)
+				res = ctx.responseData;
+
 			self.emit("dbResponseError");
 			ctx.emit("done", err, ctx, res);
 		};
 
 		ctx.dbError.forEach(dbErr => {
-			var shouldRepeat = 0;
+			let shouldRepeat = 0;
 
-			dbErr += '';
+			let dbErrStr = dbErr + '';
 
-			if (/установлена\sблокировка/ig.test(dbErr))
+			if (/установлена\sблокировка/ig.test(dbErrStr))
 				shouldRepeat = 1;
 
-			if (/блокировка\sустановлена\sпользователем/ig.test(dbErr))
+			if (/блокировка\sустановлена\sпользователем/ig.test(dbErrStr))
 				shouldRepeat = 1;
 
-			if (/Недопустимая\sзакладка/ig.test(dbErr))
+			if (/Недопустимая\sзакладка/ig.test(dbErrStr))
 				shouldRepeat = 1;
 
 			if (!shouldRepeat)
@@ -725,13 +728,16 @@ DBAwwS.prototype._onErrorCallback = function(err, ctx) {
 
 				// Закрыть просроченные запросы
 				setTimeout(function() {
-					_onComplete();
+					// _onComplete();
 				}, 15000);
 
 				dbReqRepeat.send({
 					"onSuccess": function(dbReq, dbRes) {
 						if (!requestsToRepeat[index])
 							return;
+
+						// Чтобы отразить в журнале
+						dbRes.isFailOverReq = 1;
 
 						Array.isArray(ctx.responseData)
 							? ctx.responseData[index] = dbRes
@@ -766,25 +772,39 @@ DBAwwS.prototype._onErrorCallback = function(err, ctx) {
 DBAwwS.prototype._onDoneCallback = function(err, ctx) {
 	// self - экземпляр DBAwwS;
 
-	var self        = this,
-	    resData     = [].concat(ctx.responseData),
-	    t           = resData.map(res => (res || '') && res.t).join(', '),
-	    recs        = resData.map(res => (res || '') && res.recs).join(', '),
-	    date        = new Date();
+	var self                = this,
+	    resData             = [].concat(ctx.responseData),
+	    failOverReqIdx      = [],
+	    t                   = [],
+	    recs                = [],
+	    date                = new Date();
+
+	resData.forEach((res, idx) => {
+		if (!res)
+			return;
+
+		if (res.isFailOverReq)
+			failOverReqIdx.push(idx);
+
+		recs.push(res.recs);
+
+		t.push(res.t);
+	});
 
 	var logStr = JSON.stringify({
-		err,
-		date,
-		r           : ctx.reqCount,
-		recs,
-		t,
-		bt          : self.logUseBacktrace ? new Error().stack : '',
-		dburl       : ctx.dburl,
-		dbsrc       : ctx.dbsrc,
-		dbname      : ctx.dbname,
-		dbcache     : ctx.dbcache || "",
-		dbmethod    : ctx.dbmethod,
-		query       : ctx.query
+		"err"               : err,
+		"date"              : date,
+		"r"                 : ctx.reqCount,
+		"recs"              : recs.join(", "),
+		"t"                 : t.join(", "),
+		"failOverReqIdx"    : failOverReqIdx.join(", "),
+		"bt"                : self.logUseBacktrace ? new Error().stack : '',
+		"dburl"             : ctx.dburl,
+		"dbsrc"             : ctx.dbsrc,
+		"dbname"            : ctx.dbname,
+		"dbcache"           : ctx.dbcache || "",
+		"dbmethod"          : ctx.dbmethod,
+		"query"             : ctx.query
 	});
 
 	err && self.errors.push(err);
