@@ -152,7 +152,7 @@ DBAwwsReq.prototype._onAjaxAResponse = function(httpErr, httpRes) {
 		if (dbres.err) {
 			error           = new Error(dbres.err);
 			error.index     = 0;
-			error.query     = this.queries[0];
+			error.query     = this.queries && this.queries[0];
 
 			errors.push(error);
 		}
@@ -162,7 +162,7 @@ DBAwwsReq.prototype._onAjaxAResponse = function(httpErr, httpRes) {
 			if (dbres[c].err) {
 				error           = new Error(dbres[c].err);
 				error.index     = c;
-				error.query     = this.queries[c];
+				error.query     = this.queries && this.queries[c];
 
 				errors.push(error);
 			}
