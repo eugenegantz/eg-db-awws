@@ -14,11 +14,13 @@ Object.getOwnPropertyNames(Array.prototype).forEach(function(key) {
 
 
 DBAwwsErrors.prototype.toString = function() {
-	var c, str = "";
+	var err, c, str = "";
 
 	for (c = 0; c < this.length; c++) {
-		if (this[c])
-			str += awwsUtils.trim(this[c] + "", " ;") + "(" + c + "); ";
+		err = this[c];
+
+		if (err)
+			str += awwsUtils.trim(err + "", " ;") + "(" + err.index + "); ";
 	}
 
 	return str;
