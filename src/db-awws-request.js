@@ -13,7 +13,7 @@ var EventEmitter    = require("events"),
 	["STATE_SENT", 1],
 	["STATE_WAITING_RESPONSE", 2],
 	["STATE_DONE", 3]
-].forEach((a) => {
+].forEach(function(a) {
 	_consts[a[0]] = {
 		configurable: false,
 		enumerable: false,
@@ -21,6 +21,19 @@ var EventEmitter    = require("events"),
 		writable: false
 	};
 });
+
+
+var controlCharCodes = [
+	0, 1, 2, 3, 4, 5, 6, 7, 9,
+	11, 17, 18, 19, 20, 21, 22, 23,
+	24, 25, 26, 27, 28, 29, 30, 31
+];
+
+var controlChars = controlCharCodes.map(function(code) {
+	return String.fromCharCode(code);
+});
+
+var controlCharRegEx = new RegExp("[" + controlChars.join("") + "]", "ig");
 
 
 /**
@@ -137,7 +150,11 @@ DBAwwsReq.prototype._onAjaxAResponse = function(httpErr, httpRes) {
 
 	try {
 		// Содержимое ответа из БД
-		dbres = eval("(" + httpRes.responseText + ")");
+		// dbres = eval("(" + httpRes.responseText + ")");
+
+		dbres = JSON.parse(
+			httpRes.responseText.replace(controlCharRegEx, "")
+		);
 
 	} catch (err) {
 		if (typeof err.stack == "string") {
