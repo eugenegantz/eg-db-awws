@@ -1027,7 +1027,7 @@ DBAwwS.prototype.checkConnection = function(arg) {
 				'Login:"", '        +
 				'Pwd:"", '          +
 				'Cache:"'           + awwsBase64.encode("*_connectionTest") + '", ' +
-				'Sql:"'             + awwsBase64.encode("SELECT NOW() as Now;") + '"' +
+				'Sql:"'             + awwsBase64.encode("SELECT 1") + '"' +
 			'}',
 		"decodeFrom": "windows-1251",
 		"callback": function(httpErr, res) {
