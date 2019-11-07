@@ -23,17 +23,38 @@ var EventEmitter    = require("events"),
 });
 
 
-var controlCharCodes = [
-	0, 1, 2, 3, 4, 5, 6, 7, 9,
-	11, 17, 18, 19, 20, 21, 22, 23,
-	24, 25, 26, 27, 28, 29, 30, 31
-];
+var sanitizeResponseText = (function() {
+	var controlCharsMap = {};
 
-var controlChars = controlCharCodes.map(function(code) {
-	return String.fromCharCode(code);
-});
+	var controlCharCodes = [
+		0, 1, 2, 3, 4, 5, 6, 7, 9,
+		11, 17, 18, 19, 20, 21, 22, 23,
+		24, 25, 26, 27, 28, 29, 30, 31
+	];
 
-var controlCharRegEx = new RegExp("[" + controlChars.join("") + "]", "ig");
+	controlCharCodes.forEach(function(code) {
+		controlCharsMap[String.fromCharCode(code)] = "";
+	});
+
+	// По мнению фабулы SOH - перевод строки
+	controlCharsMap[String.fromCharCode(1)] = "\\n";
+	controlCharsMap[String.fromCharCode(2)] = "\\r";
+
+	return function sanitizeResponseText(str) {
+		var c, s;
+		var _str = "";
+
+		for (c = 0; c < str.length; c++) {
+			s = str[c];
+
+			_str += s in controlCharsMap
+				? controlCharsMap[s]
+				: s;
+		}
+
+		return _str;
+	}
+})();
 
 
 /**
@@ -153,13 +174,13 @@ DBAwwsReq.prototype._onAjaxAResponse = function(httpErr, httpRes) {
 		// dbres = eval("(" + httpRes.responseText + ")");
 
 		dbres = JSON.parse(
-			httpRes.responseText.replace(controlCharRegEx, "")
+			sanitizeResponseText(httpRes.responseText)
 		);
 
 	} catch (err) {
 		if (typeof err.stack == "string") {
 			dbres.err = err.stack;
-			console.error(err.stack, httpRes);
+			console.error(httpRes, err.stack);
 		}
 	}
 
