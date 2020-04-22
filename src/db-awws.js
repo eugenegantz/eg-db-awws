@@ -61,6 +61,10 @@ var DBAwwS = function(arg) {
 		"onHasCache": false
 	};
 
+	// В фабуле действует запрет на выбор всех полей - SELECT * FROM ...
+	// Предварительно запрашивать список колонок
+	this.asteriskPrefetch = true;
+
 	this.instances.push(this);
 
 	// ------------------------
@@ -228,6 +232,13 @@ DBAwwS.prototype.dbquery = function(arg) {
 
 	arg.callback    && Va.var(Va.r.fn.type(arg.callback)).throw();
 
+	// Если SELECT *
+	if (/select\s+(top\s+\d+\s+)?\*/i.test(arg.query) && this.asteriskPrefetch)
+		return this._dbQueryAsteriskPrefetch(arg);
+
+	if (arg.chunked)
+		return this._dbQueryChunked(arg);
+
 	var self            = this,
 		dbworker        = (arg.dbworker || this.dbworker || "").trim(),
 		dbsrc           = arg.dbsrc || this.dbsrc,
@@ -357,6 +368,104 @@ DBAwwS.prototype.dbquery = function(arg) {
 	}
 
 	return this;
+};
+
+
+DBAwwS.prototype._dbQueryChunked = function(arg) {
+	var _this       = this;
+	var callback    = arg.callback || voidFn;
+	var query       = arg.query;
+	var page        = 0;
+	var offset      = arg.offsetRows || 20000;
+	var primary     = arg.primaryField;
+	var _dbRes      = null;
+
+	(function _repeat() {
+		var _arg = Object.assign({}, arg);
+
+		_arg.chunked = false;
+		_arg.query = query;
+
+		if (!/order\sby/ig.test(query))
+			_arg.query += " ORDER BY [" + primary + "] ASC";
+
+		_arg.query += ""
+			+ " OFFSET " + (page * offset) + " ROWS"
+			+ " FETCH NEXT " + offset + " ROWS ONLY";
+
+		_arg.callback = function(err, _self, dbRes) {
+			if (err)
+				return callback(err, _self, dbRes);
+
+			if (!_dbRes) {
+				_dbRes = dbRes;
+
+			} else {
+				_dbRes.res.push.apply(_dbRes.res, dbRes.res);
+				_dbRes.recs = _dbRes.res.length;
+			}
+
+			if (dbRes.res.length < offset)
+				return callback(err, _self, _dbRes);
+
+			++page;
+
+			return _repeat();
+		};
+
+		_this.dbquery(_arg);
+	})();
+};
+
+
+DBAwwS.prototype._dbQueryAsteriskPrefetch = function(arg) {
+	var _this           = this;
+	var queries         = this.splitSQL(arg.query);
+	var tableNames      = [];
+
+	function _getTableName(query) {
+		return query
+			.match(/FROM\s+\[?[a-z0-9_~]+\]?/i)
+			.toString()
+			.replace(/FROM\s*/i, "")
+			.replace(/[\[\]]/ig, "")
+			.toUpperCase();
+	}
+
+	queries.forEach(function(query) {
+		tableNames.push("'" + _getTableName(query) + "'");
+	});
+
+	var columnsQuery = "SELECT TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME IN (" + tableNames + ")";
+
+	_this.dbquery({
+		"query": columnsQuery,
+		"callback": function(err, _self, dbRes) {
+			var _arg;
+			var query;
+			var columns = {};
+
+			dbRes.res.forEach(function(row) {
+				var tableName = row[0].toUpperCase();
+				var columnName = row[1];
+
+				columns[tableName] = columns[tableName] || [];
+				columns[tableName].push("[" + columnName + "]");
+			});
+
+			query = queries.map(function(query) {
+				var t = _getTableName(query);
+
+				return query.replace("*", columns[t]);
+			});
+
+			query = query.join("; ");
+
+			_arg = Object.assign({}, arg, { "query": query });
+
+			_this.dbquery(_arg);
+		}
+	});
 };
 
 
