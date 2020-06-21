@@ -3,7 +3,8 @@
 	"main": "./src/db-awws.js",
 	"version": "1.0.1",
 	"dependencies": {
-		"eg-node-ajax": "https://github.com/eugenegantz/eg-node-ajax.git"
+		"eg-node-ajax": "https://github.com/eugenegantz/eg-node-ajax.git",
+		"ws": "^7.3.0"
 	},
 	"devDependencies": {
 		"mocha": "latest",

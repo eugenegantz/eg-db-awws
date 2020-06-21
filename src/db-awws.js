@@ -1,6 +1,7 @@
 "use strict";
 
 var voidFn          = function() {},
+	WebSocket       = require("ws"),
 	modPath         = require("path"),
 	modFs           = require("fs"),
 	Ajax            = require("eg-node-ajax"),
@@ -10,6 +11,25 @@ var voidFn          = function() {},
 	Va              = require ("./db-awws-arg-validator.js"),
 	modUtil         = require("util"),
 	EventEmitter    = require("events");
+
+
+function _dt(date) {
+	return ""
+		+ date.getFullYear().toString().slice(2)
+		+ "." + (date.getMonth() + 1)
+		+ "." + (date.getDate())
+		+ " "
+		+ date.getHours()
+		+ ":" + date.getMinutes();
+}
+
+
+function _toString(value) {
+	if (value instanceof Date)
+		return _dt(value);
+
+	return [].concat(value).join("");
+}
 
 
 /**
@@ -33,6 +53,7 @@ var DBAwwS = function(arg) {
 	this.login          = null;
 	this.login2         = null;
 	this.dburl          = null;
+	this.wsurl          = null;
 	this.dbname         = null;
 	this.dbsrc          = null;
 	this.dblogdir       = null;
@@ -42,6 +63,7 @@ var DBAwwS = function(arg) {
 
 	// ------------------------
 
+	this.ws                     = null;
 	this.log                    = [];
 	this.errors                 = [];
 	this.reqFailRepeats         = 1;
@@ -78,6 +100,8 @@ var DBAwwS = function(arg) {
 		process.on('beforeExit', this._onProcessExit.bind(this));
 		process.on('SIGINT', this._onProcessExit.bind(this));
 	}
+
+	this._openSocket();
 };
 
 
@@ -193,6 +217,62 @@ DBAwwS.prototype._prepReqArgs = function() {
 		"dbsrc":        this.dbsrc,
 		"dburl":        this.dburl
 	};
+};
+
+
+DBAwwS.prototype._openSocket = function() {
+	if (!this.wsurl)
+		return;
+
+	var _this = this;
+
+	_this.ws = new WebSocket(_this.wsurl);
+
+	_this.ws.onclose = function() {
+		setTimeout(_this._openSocket(), 15000);
+	};
+};
+
+
+DBAwwS.prototype.send = function(arg) {
+	arg = arg || {};
+
+	var value;
+	var field;
+	var _this       = this;
+	var ws          = _this.ws;
+	var message     = arg.message || "";
+	var fields      = arg.fields;
+	var callback    = arg.callback || voidFn;
+
+	if (fields) {
+		message = [];
+
+		for (field in fields) {
+			value = _toString(fields[field]).trim();
+
+			if (!value)
+				continue;
+
+			if (!!~field.indexOf('*'))
+				value = awwsBase64.encode(value);
+
+			message.push(field + ':' + value);
+		}
+
+		message = message.join("; ");
+	}
+
+	if (!message)
+		return callback("send(): !arg.message", _this);
+
+	if (!ws)
+		return callback(null, _this);
+
+	if (ws.readyState !== 1)
+		return callback(null, _this);
+
+	ws.send(message);
 };
 
 
