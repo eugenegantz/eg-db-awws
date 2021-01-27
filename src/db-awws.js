@@ -320,6 +320,7 @@ DBAwwS.prototype.dbquery = function(arg) {
 		return this._dbQueryChunked(arg);
 
 	var self            = this,
+		argLogs         = arg.logs || {},
 		dbworker        = (arg.dbworker || this.dbworker || "").trim(),
 		dbsrc           = arg.dbsrc || this.dbsrc,
 		dbname          = arg.dbname || this.dbname,
@@ -371,6 +372,7 @@ DBAwwS.prototype.dbquery = function(arg) {
 		"reqCount": 0,
 		"setAutoProp": 0,
 		"hasArgSpCn": hasArgSpCn,
+		"logResponse": argLogs.response,
 		"queries": queries,
 		"query_b": arg.query_b
 	});
@@ -962,42 +964,58 @@ DBAwwS.prototype._onErrorCallback = function(err, ctx) {
 DBAwwS.prototype._onDoneCallback = function(err, ctx) {
 	// self - экземпляр DBAwwS;
 
-	var self                = this,
+	var logStr,
+	    logObj,
+	    self                = this,
 	    resData             = [].concat(ctx.responseData),
 	    failOverReqIdx      = [],
 	    t                   = [],
 	    recs                = [],
+	    res                 = [],
 	    date                = new Date();
 
-	resData.forEach((res, idx) => {
-		if (!res)
+	resData.forEach((row, idx) => {
+		if (!row)
 			return;
 
-		if (res.isFailOverReq)
+		if (row.isFailOverReq)
 			failOverReqIdx.push(idx);
 
-		recs.push(res.recs);
+		recs.push(row.recs);
+		res.push(row.res);
 
-		t.push(res.t);
+		t.push(row.t);
 	});
 
-	var logStr = JSON.stringify({
+	logObj = {
 		"err"               : err,
 		"date"              : date,
 		"r"                 : ctx.reqCount,
 		"recs"              : recs.join(", "),
+		"res"               : null,
 		"t"                 : t.join(", "),
 		"failOverReqIdx"    : failOverReqIdx.join(", "),
-		"bt"                : self.logUseBacktrace ? new Error().stack : '',
+		"bt"                : "",
 		"dburl"             : ctx.dburl,
 		"dbsrc"             : ctx.dbsrc,
 		"dbname"            : ctx.dbname,
 		"dbcache"           : ctx.dbcache || "",
 		"dbmethod"          : ctx.dbmethod,
 		"query"             : ctx.query
-	});
+	};
 
-	err && self.errors.push(err);
+	// журналировать ответ
+	if (ctx.logResponse)
+		logObj.res = res;
+
+	// журналировать стек вызова
+	if (self.logUseBacktrace)
+		logObj.bt = new Error().stack;
+
+	logStr = JSON.stringify(logObj);
+
+	if (err)
+		self.errors.push(err);
 
 	self.log.push(logStr);
 
