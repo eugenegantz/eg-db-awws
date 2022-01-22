@@ -85,7 +85,7 @@ var DBAwwS = function(arg) {
 
 	// В фабуле действует запрет на выбор всех полей - SELECT * FROM ...
 	// Предварительно запрашивать список колонок
-	this.asteriskPrefetch = true;
+	this.asteriskPrefetch = false;
 
 	this.instances.push(this);
 
