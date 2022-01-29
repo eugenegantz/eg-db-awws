@@ -313,11 +313,14 @@ DBAwwS.prototype.dbquery = function(arg) {
 	arg.callback    && Va.var(Va.r.fn.type(arg.callback)).throw();
 
 	// Если SELECT *
-	if (/select\s+(top\s+\d+\s+)?\*/i.test(arg.query) && this.asteriskPrefetch)
-		return this._dbQueryAsteriskPrefetch(arg);
+	// deprecated. Фабула более не позволяет запрашивать схему таблиц
+	// if (/select\s+(top\s+\d+\s+)?\*/i.test(arg.query) && this.asteriskPrefetch)
+		// return this._dbQueryAsteriskPrefetch(arg);
 
+	/* deprecated. Фабула более не позволяет запрашивать схему таблиц
 	if (arg.chunked)
 		return this._dbQueryChunked(arg);
+	*/
 
 	var self            = this,
 		argLogs         = arg.logs || {},
