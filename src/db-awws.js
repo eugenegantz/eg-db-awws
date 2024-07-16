@@ -317,10 +317,9 @@ DBAwwS.prototype.dbquery = function(arg) {
 	// if (/select\s+(top\s+\d+\s+)?\*/i.test(arg.query) && this.asteriskPrefetch)
 		// return this._dbQueryAsteriskPrefetch(arg);
 
-	/* deprecated. Фабула более не позволяет запрашивать схему таблиц
-	if (arg.chunked)
+	if (arg.chunked) {
 		return this._dbQueryChunked(arg);
-	*/
+	}
 
 	var self            = this,
 		argLogs         = arg.logs || {},
@@ -455,51 +454,142 @@ DBAwwS.prototype.dbquery = function(arg) {
 	return this;
 };
 
-
+/**
+ * Фабула не позволяет выгружать больше 30 000 записей за раз.
+ * Потому предсмотрена возможность выгружать итеративно
+ *
+ * Пример запроса
+ * SELECT __TOP__
+ *     __IDENTITY__, col1, col2, coln
+ * FROM t_table_name
+ * WHERE
+ *     __WHERE_IDENTITY__
+ *     AND col1 > 10
+ *     __ORDER_BY__;
+ *
+ * @param {Object} arg
+ * @param {Function} [arg.callback] - callback - (err, _self, dbres) => void
+ * @param {String} arg.query - текст запроса
+ * @param {Number} [arg.offsetRows=30000] - длина рекордсета
+ * @param {String} arg.identityField - поле-ключ, числовой счетчик (id)
+ * @private
+ */
 DBAwwS.prototype._dbQueryChunked = function(arg) {
 	var _this       = this;
 	var callback    = arg.callback || voidFn;
 	var query       = arg.query;
 	var page        = 0;
-	var offset      = arg.offsetRows || 20000;
+	var offset      = arg.offsetRows || 30000;
+	var lastId      = 0;
 	var primary     = arg.primaryField;
+	var identity    = arg.identityField;
 	var _dbRes      = null;
 
-	(function _repeat() {
-		var _arg = Object.assign({}, arg);
+	// deprecated - не поддерживается фабулой
+	if (primary) {
+		(function _repeatPrimary() {
+			var _arg = Object.assign({}, arg);
 
-		_arg.chunked = false;
-		_arg.query = query;
+			_arg.chunked = false;
+			_arg.query = query;
 
-		if (!/order\sby/ig.test(query))
-			_arg.query += " ORDER BY [" + primary + "] ASC";
+			if (!/order\sby/ig.test(query))
+				_arg.query += " ORDER BY [" + primary + "] ASC";
 
-		_arg.query += ""
-			+ " OFFSET " + (page * offset) + " ROWS"
-			+ " FETCH NEXT " + offset + " ROWS ONLY";
+			_arg.query += ""
+				+ " OFFSET " + (page * offset) + " ROWS"
+				+ " FETCH NEXT " + offset + " ROWS ONLY";
 
-		_arg.callback = function(err, _self, dbRes) {
-			if (err)
-				return callback(err, _self, dbRes);
+			_arg.callback = function(err, _self, dbRes) {
+				if (err)
+					return callback(err, _self, dbRes);
 
-			if (!_dbRes) {
-				_dbRes = dbRes;
+				if (!_dbRes) {
+					_dbRes = dbRes;
 
-			} else {
-				_dbRes.res.push.apply(_dbRes.res, dbRes.res);
-				_dbRes.recs = _dbRes.res.length;
+				} else {
+					_dbRes.res.push.apply(_dbRes.res, dbRes.res);
+					_dbRes.recs = _dbRes.res.length;
+				}
+
+				if (dbRes.res.length < offset)
+					return callback(err, _self, _dbRes);
+
+				++page;
+
+				return _repeatPrimary();
+			};
+
+			_this.dbquery(_arg);
+		})();
+	}
+
+	else if (identity) {
+		(function _repeatIdentity() {
+			var _arg = Object.assign({}, arg);
+
+			_arg.chunked = false;
+			_arg.query = query;
+
+			if (!/__WHERE_IDENTITY__/ig.test(_arg.query)) {
+				throw new Error('"__WHERE_IDENTITY__" placeholder in WHERE condition is missing');
 			}
 
-			if (dbRes.res.length < offset)
-				return callback(err, _self, _dbRes);
+			if (!/__IDENTITY__/ig.test(_arg.query)) {
+				throw new Error('"__IDENTITY__" placeholder in SELECT statement is missing');
+			}
 
-			++page;
+			if (!/__TOP__/ig.test(_arg.query)) {
+				throw new Error('"__TOP__" placeholder in SELECT statement is missing');
+			}
 
-			return _repeat();
-		};
+			if (!/__ORDER_BY__/ig.test(_arg.query)) {
+				throw new Error('"__ORDER_BY__" placeholder is missing');
+			}
 
-		_this.dbquery(_arg);
-	})();
+			_arg.query = _arg.query.replace(/__WHERE_IDENTITY__/i, "([" + identity + "] > " + lastId + ")");
+
+			_arg.query = _arg.query.replace(/__ORDER_BY__/i, "ORDER BY [" + identity + "] ASC");
+
+			_arg.query = _arg.query.replace(/__TOP__/i, "TOP " + offset);
+
+			_arg.query = _arg.query.replace(/__IDENTITY__/i, "[" + identity + "]");
+
+			_arg.callback = function(err, _self, dbRes) {
+				if (err)
+					return callback(err, _self, dbRes);
+
+				var identityIndex;
+
+				if (!_dbRes) {
+					_dbRes = dbRes;
+
+				} else {
+					_dbRes.res.push.apply(_dbRes.res, dbRes.res);
+					_dbRes.recs = _dbRes.res.length;
+				}
+
+				_dbRes.fld.some(function(field, index) {
+					if (field.Name.toLowerCase() == identity.toLowerCase()) {
+						identityIndex = index;
+						return true;
+					}
+
+					return false;
+				});
+
+				lastId = _dbRes.res[_dbRes.res.length - 1][identityIndex];
+
+				if (dbRes.res.length < offset) {
+					return callback(err, _self, _dbRes);
+				}
+
+				return _repeatIdentity();
+			};
+
+			_this.dbquery(_arg);
+		})();
+	}
 };
 
 
