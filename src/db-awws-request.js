@@ -170,18 +170,37 @@ DBAwwsReq.prototype._onAjaxAResponse = function(httpErr, httpRes) {
 	}
 
 	try {
-		// Содержимое ответа из БД
-		// dbres = eval("(" + httpRes.responseText + ")");
 
+		// Содержимое ответа из БД
 		dbres = JSON.parse(
 			sanitizeResponseText(httpRes.responseText)
 		);
 
 	} catch (err) {
-		if (typeof err.stack == "string") {
-			dbres.err = err.stack;
-			console.error(httpRes, err.stack);
+
+		// Иногда фабула возвращает ответ вида:
+		// `{ ..., "err":"\\'SSMA_CC$PROPERTY$Value$disallow_zero_length\\'", ...}`
+		// и тогда JSON.parse возвращает исключение.
+		// Видимо, проблема в двойном экранировании одинарной кавычки `"\\'"`.
+		// После первой неудачной попытки попробовать распарсить текст с исключенным двойным экранированием.
+
+		try {
+
+			dbres = JSON.parse(
+				sanitizeResponseText(
+					httpRes.responseText.replace(/\\/ig, "")
+				)
+			);
+
+		} catch (err) {
+
+			if (typeof err.stack == "string") {
+				dbres.err = httpRes.responseText + '\n-----\n' + err.stack;
+				console.error(httpRes, err.stack);
+			}
+
 		}
+
 	}
 
 	// Вернулся массив?
