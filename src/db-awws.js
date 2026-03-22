@@ -229,7 +229,7 @@ DBAwwS.prototype._openSocket = function() {
 	_this.ws = new WebSocket(_this.wsurl);
 
 	_this.ws.onclose = function() {
-		setTimeout(_this._openSocket(), 15000);
+		setTimeout(_this._openSocket.bind(_this), 15000);
 	};
 };
 
